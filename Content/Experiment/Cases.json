@@ -1,0 +1,13 @@
+{
+  "_comment": "RHI 8 케이스 정의 — 보고서 Phase 1 + Phase 2 매핑",
+  "cases": [
+    { "caseId": 1, "label": "Case1: 최상의 동기화 (대조군)",       "spatialErrCm":  0,  "temporalDelayMs":   0, "stimulus": "BrushSync",    "durationSec": 30, "surveyOnEnd": true, "ownershipExpected": true  },
+    { "caseId": 2, "label": "Case2: 공간오차 5~30cm",              "spatialErrCm": 15,  "temporalDelayMs":   0, "stimulus": "BrushSync",    "durationSec": 30, "surveyOnEnd": true, "ownershipExpected": false },
+    { "caseId": 3, "label": "Case3: 시간오차 100~500ms",           "spatialErrCm":  0,  "temporalDelayMs": 300, "stimulus": "BrushSync",    "durationSec": 30, "surveyOnEnd": true, "ownershipExpected": false },
+    { "caseId": 4, "label": "Case4: 시/공간 오차 공존",            "spatialErrCm": 15,  "temporalDelayMs": 300, "stimulus": "BrushSync",    "durationSec": 30, "surveyOnEnd": true, "ownershipExpected": false },
+    { "caseId": 5, "label": "Case5: 신체소유감 활성+불일치",       "spatialErrCm":  0,  "temporalDelayMs":   0, "stimulus": "BrushAsync",   "durationSec": 30, "surveyOnEnd": true, "ownershipExpected": true  },
+    { "caseId": 6, "label": "Case6: 신체소유감 비활성+불일치",     "spatialErrCm": 30,  "temporalDelayMs": 500, "stimulus": "BrushAsync",   "durationSec": 30, "surveyOnEnd": true, "ownershipExpected": false },
+    { "caseId": 7, "label": "Case7: 신체소유감 활성+시각만(망치)", "spatialErrCm":  0,  "temporalDelayMs":   0, "stimulus": "HammerThreat", "durationSec": 15, "surveyOnEnd": true, "ownershipExpected": true  },
+    { "caseId": 8, "label": "Case8: 신체소유감 비활성+시각만(망치)","spatialErrCm": 30,  "temporalDelayMs": 500, "stimulus": "HammerThreat", "durationSec": 15, "surveyOnEnd": true, "ownershipExpected": false }
+  ]
+}
