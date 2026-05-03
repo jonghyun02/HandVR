@@ -312,20 +312,6 @@ StartExperiment()
 
 ---
 
-## 11. 부록 — 룬 드로잉 시스템 (legacy)
-
-본 저장소에는 RHI 실험과 별개로 핀치 기반 도형 인식 + 6종 마법 디스패치 시스템이 함께 들어있습니다.
-GameMode를 `AHandGameMode`로 바꾸면 룬 시스템이 동작합니다.
-
-| 도형 | 마법 | 디버그 비주얼 |
-|---|---|---|
-| 원 | 푸른 방어막 5초 | Sphere |
-| 직선 | 광선 | Line |
-| 삼각형 | 룬 서클 + 소환 | Circle + Sphere |
-| V자 | 분할 공격 | Line × 2 |
-| 지그재그 | 연쇄 번개 | Line × 4-5 |
-| 별 | 폭발 발사체 | Line + Sphere |
-
 평가 commandlet:
 ```bat
 "C:\Program Files\Epic Games\UE_5.7\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" ^
