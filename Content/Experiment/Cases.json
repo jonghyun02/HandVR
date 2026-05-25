@@ -1,13 +1,30 @@
 {
-  "_comment": "RHI 8 케이스 정의 — 보고서 Phase 1 + Phase 2 매핑",
-  "cases": [
-    { "caseId": 1, "label": "Case1: 최상의 동기화 (대조군)",       "spatialErrCm":  0,  "temporalDelayMs":   0, "stimulus": "BrushSync",    "durationSec": 30, "surveyOnEnd": true, "ownershipExpected": true  },
-    { "caseId": 2, "label": "Case2: 공간오차 5~30cm",              "spatialErrCm": 15,  "temporalDelayMs":   0, "stimulus": "BrushSync",    "durationSec": 30, "surveyOnEnd": true, "ownershipExpected": false },
-    { "caseId": 3, "label": "Case3: 시간오차 100~500ms",           "spatialErrCm":  0,  "temporalDelayMs": 300, "stimulus": "BrushSync",    "durationSec": 30, "surveyOnEnd": true, "ownershipExpected": false },
-    { "caseId": 4, "label": "Case4: 시/공간 오차 공존",            "spatialErrCm": 15,  "temporalDelayMs": 300, "stimulus": "BrushSync",    "durationSec": 30, "surveyOnEnd": true, "ownershipExpected": false },
-    { "caseId": 5, "label": "Case5: 신체소유감 활성+불일치",       "spatialErrCm":  0,  "temporalDelayMs":   0, "stimulus": "BrushAsync",   "durationSec": 30, "surveyOnEnd": true, "ownershipExpected": true  },
-    { "caseId": 6, "label": "Case6: 신체소유감 비활성+불일치",     "spatialErrCm": 30,  "temporalDelayMs": 500, "stimulus": "BrushAsync",   "durationSec": 30, "surveyOnEnd": true, "ownershipExpected": false },
-    { "caseId": 7, "label": "Case7: 신체소유감 활성+시각만(망치)", "spatialErrCm":  0,  "temporalDelayMs":   0, "stimulus": "HammerThreat", "durationSec": 15, "surveyOnEnd": true, "ownershipExpected": true  },
-    { "caseId": 8, "label": "Case8: 신체소유감 비활성+시각만(망치)","spatialErrCm": 30,  "temporalDelayMs": 500, "stimulus": "HammerThreat", "durationSec": 15, "surveyOnEnd": true, "ownershipExpected": false }
+  "_comment": "효과가 확실히 느껴지도록 수치 키움 + 사용자가 패널에서 직접 선택해 진행 (자동 진행 없음).",
+  "_design": {
+    "rationale": [
+      "이전 5/15/30cm, 150/300/500ms는 사용자가 직접 써봤을 때 차이를 거의 못 느껴서 0/30/60/100cm, 0/500/1500/3000ms로 대폭 확대.",
+      "자극 종료 후 자동으로 다음 케이스로 안 넘어가고 IDLE로 돌아옴. 사용자가 책상 위 패널 버튼으로 매번 직접 선택.",
+      "Pilot/Main 둘 다 7개로 맞춤 — 패널 1~7 버튼과 1:1 매핑."
+    ]
+  },
+
+  "casesPilot": [
+    { "caseId": 11, "label": "P1: baseline (0cm/0ms)",        "spatialErrCm":   0, "temporalDelayMs":    0, "stimulus": "BrushSync", "durationSec": 20, "surveyOnEnd": true, "ownershipExpected": true  },
+    { "caseId": 12, "label": "P2: 공간 30cm",                  "spatialErrCm":  30, "temporalDelayMs":    0, "stimulus": "BrushSync", "durationSec": 20, "surveyOnEnd": true, "ownershipExpected": true  },
+    { "caseId": 13, "label": "P3: 공간 60cm",                  "spatialErrCm":  60, "temporalDelayMs":    0, "stimulus": "BrushSync", "durationSec": 20, "surveyOnEnd": true, "ownershipExpected": false },
+    { "caseId": 14, "label": "P4: 공간 100cm (극단)",          "spatialErrCm": 100, "temporalDelayMs":    0, "stimulus": "BrushSync", "durationSec": 20, "surveyOnEnd": true, "ownershipExpected": false },
+    { "caseId": 15, "label": "P5: 시간 500ms",                 "spatialErrCm":   0, "temporalDelayMs":  500, "stimulus": "BrushSync", "durationSec": 20, "surveyOnEnd": true, "ownershipExpected": true  },
+    { "caseId": 16, "label": "P6: 시간 1500ms",                "spatialErrCm":   0, "temporalDelayMs": 1500, "stimulus": "BrushSync", "durationSec": 20, "surveyOnEnd": true, "ownershipExpected": false },
+    { "caseId": 17, "label": "P7: 시간 3000ms (극단)",         "spatialErrCm":   0, "temporalDelayMs": 3000, "stimulus": "BrushSync", "durationSec": 20, "surveyOnEnd": true, "ownershipExpected": false }
+  ],
+
+  "casesMain": [
+    { "caseId": 1, "label": "M1: baseline 동기화",             "spatialErrCm":   0, "temporalDelayMs":    0, "stimulus": "BrushSync",    "durationSec": 60, "surveyOnEnd": true, "ownershipExpected": true  },
+    { "caseId": 2, "label": "M2: 공간 60cm 큰 어긋남",         "spatialErrCm":  60, "temporalDelayMs":    0, "stimulus": "BrushSync",    "durationSec": 60, "surveyOnEnd": true, "ownershipExpected": false },
+    { "caseId": 3, "label": "M3: 시간 1500ms 큰 지연",         "spatialErrCm":   0, "temporalDelayMs": 1500, "stimulus": "BrushSync",    "durationSec": 60, "surveyOnEnd": true, "ownershipExpected": false },
+    { "caseId": 4, "label": "M4: 촉각불일치 (시각우위 검증)",  "spatialErrCm":   0, "temporalDelayMs":    0, "stimulus": "BrushAsync",   "durationSec": 60, "surveyOnEnd": true, "ownershipExpected": true  },
+    { "caseId": 5, "label": "M5: 위협 망치 (시각만)",          "spatialErrCm":   0, "temporalDelayMs":    0, "stimulus": "HammerThreat", "durationSec": 45, "surveyOnEnd": true, "ownershipExpected": true  },
+    { "caseId": 6, "label": "M6: 공간+시간 동시 (60cm/1500ms)","spatialErrCm":  60, "temporalDelayMs": 1500, "stimulus": "BrushSync",    "durationSec": 60, "surveyOnEnd": true, "ownershipExpected": false },
+    { "caseId": 7, "label": "M7: 극단 (100cm/3000ms)",         "spatialErrCm": 100, "temporalDelayMs": 3000, "stimulus": "BrushSync",    "durationSec": 60, "surveyOnEnd": true, "ownershipExpected": false }
   ]
 }

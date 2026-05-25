@@ -60,6 +60,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Lab|Panel")
 	void UpdateStatusText(const FString& InText);
 
+	/** 컨트롤 패널: 케이스 안내 텍스트 갱신 (모드 + 1~7 케이스 리스트). */
+	UFUNCTION(BlueprintCallable, Category = "Lab|Panel")
+	void UpdateLegendText(const FString& InText);
+
 	/** 컨트롤 패널: 월드 좌표가 어느 버튼 위에 있는지 검사. 1~8=Case, 9=Stop, 0=miss. */
 	UFUNCTION(BlueprintCallable, Category = "Lab|Panel")
 	int32 HitTestButton(const FVector& WorldPos) const;
@@ -86,6 +90,7 @@ protected:
 	UPROPERTY() TArray<UStaticMeshComponent*> CaseButtons;
 	UPROPERTY() TArray<UTextRenderComponent*> CaseButtonLabels;
 	UPROPERTY() UTextRenderComponent* StatusText = nullptr;
+	UPROPERTY() UTextRenderComponent* LegendText = nullptr;
 
 	void RebuildEnvironment();
 	UStaticMeshComponent* AddBox(FName Name, const FVector& LocalLocation, const FVector& BoxSizeCm, UMaterialInterface* Mat);

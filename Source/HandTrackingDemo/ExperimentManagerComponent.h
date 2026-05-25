@@ -46,13 +46,27 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "RHI|Experiment")
 	void StopExperiment();
 
-	/** 단일 케이스 즉시 실행. 1~8 = 해당 케이스, 9 = Stop. 진행 중이면 중단 후 새로 시작. */
+	/** 단일 케이스 즉시 실행. 1~7 = 현재 모드의 N번째 케이스, 8 = 모드 토글, 9 = Stop. */
 	UFUNCTION(BlueprintCallable, Category = "RHI|Experiment")
 	void SelectCase(int32 CaseId);
+
+	/** 실험 모드 전환 (Pilot ↔ Main). 진행 중이면 정지 후 전환. */
+	UFUNCTION(BlueprintCallable, Category = "RHI|Experiment")
+	void SetExperimentMode(ERHIExperimentMode NewMode);
+
+	UFUNCTION(BlueprintCallable, Category = "RHI|Experiment")
+	void ToggleExperimentMode();
+
+	UFUNCTION(BlueprintCallable, Category = "RHI|Experiment")
+	ERHIExperimentMode GetExperimentMode() const { return CurrentMode; }
 
 	/** HUD/벽면 표시용 상태 문자열. */
 	UFUNCTION(BlueprintCallable, Category = "RHI|Experiment")
 	FString GetStatusString() const;
+
+	/** 현재 모드의 케이스 7개를 사용자가 보고 고를 수 있게 한 문자열로 반환. */
+	UFUNCTION(BlueprintCallable, Category = "RHI|Experiment")
+	FString GetLegendString() const;
 
 	UFUNCTION(BlueprintCallable, Category = "RHI|Experiment")
 	void OnSurveySubmitted(const FRHISurveyResponse& Response);
@@ -79,10 +93,21 @@ public:
 	FOnRHIExperimentCompleted OnExperimentCompleted;
 
 	// ----- 데이터 -----
+	/** 현재 모드의 활성 케이스 시퀀스. SetExperimentMode가 PilotCases/MainCases에서 복사. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "RHI|Experiment")
 	TArray<FRHICaseSpec> Cases;
 
-	/** Cases.json 상대 경로 (Content/...). 비어있으면 기본 8케이스 사용. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "RHI|Experiment")
+	TArray<FRHICaseSpec> PilotCases;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "RHI|Experiment")
+	TArray<FRHICaseSpec> MainCases;
+
+	/** 기본 시작 모드 (BeginPlay 시 적용). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "RHI|Experiment")
+	ERHIExperimentMode DefaultMode = ERHIExperimentMode::Pilot;
+
+	/** Cases.json 상대 경로 (Content/...). 비어있으면 기본 케이스 사용. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "RHI|Experiment")
 	FString CasesJsonRelativePath = TEXT("Experiment/Cases.json");
 
@@ -101,8 +126,11 @@ protected:
 	void InitDefaultCases();
 	bool TryLoadCasesFromJson();
 
+	void ApplyModeCases();
+
 	void BeginCase(int32 Index);
 	void EndCurrentCase();
+	void ReturnToIdle();
 
 	void SpawnSurveyWidget();
 	void ClearSurveyWidget();
@@ -120,6 +148,7 @@ private:
 
 	int32 CurrentCaseIndex = INDEX_NONE;
 	bool bRunning = false;
+	ERHIExperimentMode CurrentMode = ERHIExperimentMode::Pilot;
 	FTimerHandle CaseTimer;
 
 	FString CsvPath;

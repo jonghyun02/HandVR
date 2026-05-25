@@ -237,34 +237,82 @@ StartExperiment()
 
 ---
 
-## 7. 실험 프로토콜
+## 7. 실험 프로토콜 (중간발표 피드백 반영 — Pilot + Main 2단계)
 
-### 7.1 Phase 1 — 신체소유감 활성 임계값(Threshold) 도출
-| 케이스 | 공간오차 | 시간오차 | 자극 | 실험목적 |
-|---|---|---|---|---|
-| Case 1 | 0 cm | 0 ms | BrushSync | 최상의 동기화 상태 (대조군) |
-| Case 2 | 15 cm | 0 ms | BrushSync | 신체소유감이 사라지는 오차거리 측정 |
-| Case 3 | 0 cm | 300 ms | BrushSync | 신체소유감이 사라지는 오차시간 측정 |
-| Case 4 | 15 cm | 300 ms | BrushSync | 시·공간 오차 공존 시 임계값 측정 |
+> 중간발표 코멘트: *"실험이 너무 복잡해 보인다. 피험자가 1시간 이내에 마칠 수 있는 형태로 조절하고,
+> Pilot 테스트로 가능한 경우를 우선 훑은 뒤 꼭 검증할 3~5가지만 본 실험에 넣어라."*
+>
+> 이를 반영해 기존 8케이스 일괄 실행 구조를 **Pilot 7케이스(빠른 스크리닝) + Main 5케이스(핵심 검증)** 의
+> 2 트랙으로 분리. `ERHIExperimentMode` enum과 `ExperimentManager::SetExperimentMode()`로 전환.
 
-### 7.2 Phase 2 — 신체소유감 활성화 상태에서의 촉각왜곡 검증
-| 케이스 | 신체소유감 | 촉각자극 | 예상결과 |
+### 7.1 1시간 세션 타임라인 (피험자 1인)
+| 구간 | 시간 | 내용 |
+|---|---|---|
+| 입장 / 동의서 / 브리핑 | 10 min | 가설·자극·설문 척도 설명, 헤드셋 착용 안내 |
+| 캘리브레이션 / 연습 | 5 min | 의자·테이블 정합 확인, 패널 버튼 poke 1회 시연 |
+| **Pilot — 빠른 스크리닝** | **6 min** | 7케이스 × 자극 15s + 설문 ~25s = ≈ 5.5분 |
+| 휴식 / 브리핑 (Pilot 결과 공유) | 5 min | 피험자에게 어느 조건이 가장 불일치 느낌이었는지 회상 시킴 |
+| **Main — 핵심 가설 검증** | **25 min** | 5케이스 × (자극 60~90s + 설문 ~60s) ≈ 12분 자극 + 13분 응답·휴식 |
+| 사후 인터뷰 / 디브리핑 | 9 min | 자유 응답, 1~7점 외 코멘트 회수 |
+| **합계** | **~60 min** | |
+
+진행 상황은 `LabEnvironmentActor` 컨트롤 패널의 StatusText에 `Session N.N / 60 min`으로 누적 표시됩니다.
+
+### 7.2 Pilot — 7케이스 빠른 훑기 (각 15초)
+공간 오차(5/15/30 cm)와 시간 오차(150/300/500 ms)를 격자형으로 펼쳐 **개인별 임계점 후보**를 식별.
+모든 케이스 동일하게 `BrushSync` 자극 사용.
+
+| ID | 공간 | 시간 | 목적 |
 |---|---|---|---|
-| Case 5 | 활성 | BrushAsync (불일치) | 시각/표류된 고유수용감각이 촉각을 왜곡 |
-| Case 6 | 비활성 | BrushAsync (불일치) | 촉각왜곡 없음 |
-| Case 7 | 활성 | HammerThreat (시각만) | 시각 자극만으로 위협 반응 유도 |
-| Case 8 | 비활성 | HammerThreat (시각만) | 위협 반응 없음 |
+| P1 | 0 cm | 0 ms | baseline (동기화) |
+| P2 | 5 cm | 0 ms | 공간 가벼움 |
+| P3 | 15 cm | 0 ms | 공간 중간 |
+| P4 | 30 cm | 0 ms | 공간 큼 |
+| P5 | 0 cm | 150 ms | 시간 가벼움 |
+| P6 | 0 cm | 300 ms | 시간 중간 |
+| P7 | 0 cm | 500 ms | 시간 큼 |
 
-(상세 파라미터: `Content/Experiment/Cases.json`)
+### 7.3 Main — 5케이스 핵심 검증 (각 60~90초)
+Pilot 결과를 바탕으로 **개인별 임계점 후보 근처에서 충분히 긴 자극**으로 신체소유감을 안정적으로 유도한 뒤
+설문 응답을 받습니다. 비활성 대조군(Case6/8)과 시·공간 공존 케이스(Case4)는 1시간 budget 초과 위험으로
+제외하고, 피험자 간 비교(between-subject)는 별도 세션으로 분리 권장.
 
-### 7.3 설문 (Likert 1~7)
+| ID | 공간 | 시간 | 자극 | 검증 가설 |
+|---|---|---|---|---|
+| M1 | 0 cm | 0 ms | BrushSync   | 신체소유감 baseline 측정 |
+| M2 | 15 cm | 0 ms | BrushSync  | 공간 오차 임계 (Pilot 결과 반영해 조정 가능) |
+| M3 | 0 cm | 300 ms | BrushSync | 시간 오차 임계 (Pilot 결과 반영해 조정 가능) |
+| M4 | 0 cm | 0 ms | BrushAsync | **핵심**: 신체소유감 활성 + 촉각 불일치 → 시각우위 왜곡 |
+| M5 | 0 cm | 0 ms | HammerThreat | **핵심**: 시각 자극만으로 위협 반응 유도 |
+
+(상세 파라미터: `Content/Experiment/Cases.json` — `casesPilot`, `casesMain` 두 배열)
+
+### 7.4 컨트롤 패널 매핑 (`LabEnvironmentActor`)
+실험자가 헤드셋을 벗지 않고 손가락 poke로 즉시 케이스 선택:
+
+| 버튼 | 기능 |
+|---|---|
+| 1 ~ 7 | 현재 모드의 N번째 케이스 즉시 실행 |
+| **M** (8) | Pilot ↔ Main 모드 토글 |
+| **S** (9) | 실험 정지 + CSV flush |
+
+### 7.5 설문 (Likert 1~7)
+케이스 종료 직후 `URHISurveyWidget`이 카메라 앞 1 m에 자동 부상.
+
 | 측정항목 | 질문 | 분석용도 |
 |---|---|---|
-| **신체소유감** | 가상 손이 실제 내 손처럼 느껴졌는가? | 신체소유감 임계값 판별 |
-| **촉각왜곡** | 실제가 아닌 시각자극 부위에서 촉각이 느껴졌는가? | 활성 상태에서의 왜곡 검증 |
-| **시각 위계** (Case 7) | 실제 몸의 느낌보다 눈에 보이는 정보를 더 신뢰했는가? | 시각자극의 위계 확인 |
+| **신체소유감** | 가상 손이 실제 내 손처럼 느껴졌는가? | 임계값 / baseline 차이 |
+| **촉각왜곡** | 실제가 아닌 시각자극 부위에서 촉각이 느껴졌는가? | M4 핵심 가설 검증 |
+| **시각 위계** | 실제 몸의 느낌보다 눈에 보이는 정보를 더 신뢰했는가? | M5 위협반응 + 전반적 우위성 |
 
-설문 응답은 `URHISurveyWidget`을 통해 수집되어 `UExperimentManagerComponent::OnSurveySubmitted`로 전달, CSV에 기록됩니다.
+응답은 `UExperimentManagerComponent::OnSurveySubmitted`로 전달, `Saved/Logs/RHI_YYYYMMDD_HHMMSS.csv`에 기록.
+모드·CaseId·ownership/distort/visualDom·세션 누적 시간이 한 행에 묶입니다.
+
+### 7.6 분석 권장 절차
+1. Pilot CSV에서 피험자별 spatial drop-off / temporal drop-off 곡선 그려 **개인 임계점** 찾기 (P1→P2→P3→P4 / P1→P5→P6→P7).
+2. Main M1 → M2/M3 비교로 **그룹 임계점** 확인 (개인 임계점이 Pilot에서 크게 벗어났다면 Main 케이스 파라미터 조정 후 재실행).
+3. Main M4 → M1 비교로 **시각우위에 의한 촉각왜곡** 효과 크기 (Cohen's d) 산출.
+4. Main M5의 위협감 평균 ≥ 5 이상이면 시각만으로 정서적 위협 반응 유도 성공으로 판정.
 
 ---
 
@@ -277,7 +325,9 @@ StartExperiment()
 - **멀티모달 입력**: `SetSimultaneousHandsAndControllersEnabled(true)` 적용
 - **트래킹 강건화**: `ConfidenceBehavior::None`으로 신뢰도 저하 시에도 메시 유지
 - **RHI 핵심 메커니즘**: ring buffer 기반 시간지연 + HMD forward 공간오프셋 (`ARubberHandPawn`)
-- **실험 자동화**: 8케이스 자동 진행, JSON 로드, CSV 로깅 (`UExperimentManagerComponent`)
+- **실험 자동화**: Pilot 7 + Main 5 케이스 2 트랙, JSON 로드, CSV 로깅 (`UExperimentManagerComponent`)
+- **1시간 budget 인지**: StatusText에 모드/N케이스/남은 자극시간/세션 누적시간 실시간 표시
+- **모드 전환 UX**: 컨트롤 패널 [M] 버튼 poke로 Pilot ↔ Main 즉시 토글
 - **자극 시스템**: Brush Sync/Async, Hammer Threat 4단계 시퀀스
 - **설문 시스템**: 3항목 Likert 1~7 위젯 (`URHISurveyWidget`)
 
@@ -285,6 +335,7 @@ StartExperiment()
 - 현실 ↔ 가상 좌표 정합 (캘리브레이션 절차)
 - 사운드 시스템 구현 (현재 `USoundBase` 슬롯만 있음)
 - 실험 도구 모델링 / 텍스쳐 (현재는 `Engine/BasicShapes/Cube` 박스 메시)
+- Pilot → Main 자동 추천 (Pilot 응답에서 개인 임계점 추정해 Main 케이스 파라미터 자동 보정)
 
 ---
 

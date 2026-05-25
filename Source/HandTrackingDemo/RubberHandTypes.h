@@ -12,6 +12,16 @@ enum class ERHIStimulusType : uint8
 	HammerThreat UMETA(DisplayName = "Hammer (Threat, Visual Only)")
 };
 
+// 중간발표 피드백 반영: 한 명당 1시간 이내 완주를 위해 Pilot(짧은 스크리닝)과
+// Main(핵심 3~5케이스 검증)을 분리. Mode 전환 시 ExperimentManager가 해당 트랙의
+// 케이스 배열만 로드한다.
+UENUM(BlueprintType)
+enum class ERHIExperimentMode : uint8
+{
+	Pilot UMETA(DisplayName = "Pilot (Quick Screening)"),
+	Main  UMETA(DisplayName = "Main (Core Verification)")
+};
+
 UENUM(BlueprintType)
 enum class ERHISurveyMetric : uint8
 {
@@ -31,10 +41,10 @@ struct FRHICaseSpec
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	FString Label;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (ClampMin = 0.0, ClampMax = 60.0))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (ClampMin = 0.0, ClampMax = 200.0))
 	float SpatialErrorCm = 0.0f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (ClampMin = 0.0, ClampMax = 1000.0))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (ClampMin = 0.0, ClampMax = 3000.0))
 	float TemporalDelayMs = 0.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)

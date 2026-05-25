@@ -61,6 +61,7 @@ void ALabEnvironmentActor::ClearSpawned()
 	CaseButtons.Reset();
 	CaseButtonLabels.Reset();
 	if (StatusText) { StatusText->DestroyComponent(); StatusText = nullptr; }
+	if (LegendText) { LegendText->DestroyComponent(); LegendText = nullptr; }
 }
 
 UStaticMeshComponent* ALabEnvironmentActor::AddBox(FName Name, const FVector& LocalLocation, const FVector& BoxSizeCm, UMaterialInterface* Mat)
@@ -203,35 +204,55 @@ void ALabEnvironmentActor::BuildControlPanel()
 
 		// 버튼 위쪽에 식별용 텍스트(작게). 위에서 내려다볼 때 보임.
 		// 텍스트는 yaw=90으로 사용자 쪽(+Y) 향함 — 좌우 반전이지만 단일 숫자라 인식 가능.
+		// 매핑: 1~7 = 현재 모드 케이스, 8 = Pilot/Main 모드 토글, 9 = Stop.
 		UTextRenderComponent* T = NewObject<UTextRenderComponent>(this,
 			*FString::Printf(TEXT("CaseLabel_%d"), i + 1));
 		T->SetupAttachment(SceneRoot);
 		T->RegisterComponent();
 		T->SetRelativeLocation(FVector(X, Y, ButtonZ + 4.f));
 		T->SetRelativeRotation(FRotator(0.f, 90.f, 0.f));
-		const FString Lbl = (i == 8) ? TEXT("S") : FString::FromInt(i + 1);
+		FString Lbl;
+		FColor LblColor;
+		if      (i == 7) { Lbl = TEXT("M"); LblColor = FColor(40, 80, 200);  } // ModeToggle (파랑)
+		else if (i == 8) { Lbl = TEXT("S"); LblColor = FColor::Red;          } // Stop
+		else             { Lbl = FString::FromInt(i + 1); LblColor = FColor::Black; }
 		T->SetText(FText::FromString(Lbl));
 		T->SetHorizontalAlignment(EHTA_Center);
 		T->SetVerticalAlignment(EVRTA_TextCenter);
 		T->SetWorldSize(4.f);
-		T->SetTextRenderColor((i == 8) ? FColor::Red : FColor::Black);
+		T->SetTextRenderColor(LblColor);
 		CaseButtonLabels.Add(T);
 	}
 
-	// 상태 표시 — 책상 너머 벽 앞에 큰 텍스트, 사용자 향함(yaw=90, 좌우 반전 감수).
+	// 상태 표시 — 책상 너머 벽 앞 상단, 사용자 향함(yaw=90, 좌우 반전 감수).
 	StatusText = NewObject<UTextRenderComponent>(this, TEXT("StatusText"));
 	StatusText->SetupAttachment(SceneRoot);
 	StatusText->RegisterComponent();
 	StatusText->SetRelativeLocation(FVector(
 		TableOffsetCm.X,
-		TableOffsetCm.Y - RealTableSizeCm.Y * 0.5f - 30.f,   // 책상 너머 30cm
-		TableTopZ + 40.f));                                   // 책상 위 40cm
+		TableOffsetCm.Y - RealTableSizeCm.Y * 0.5f - 30.f,
+		TableTopZ + 90.f));   // 책상 위 90cm — Legend보다 위쪽
 	StatusText->SetRelativeRotation(FRotator(0.f, 90.f, 0.f));
-	StatusText->SetText(FText::FromString(TEXT("IDLE\n[1]~[8]:Case  [S]:Stop")));
+	StatusText->SetText(FText::FromString(TEXT("IDLE")));
 	StatusText->SetHorizontalAlignment(EHTA_Center);
 	StatusText->SetVerticalAlignment(EVRTA_TextCenter);
-	StatusText->SetWorldSize(6.f);
-	StatusText->SetTextRenderColor(FColor::White);
+	StatusText->SetWorldSize(5.f);
+	StatusText->SetTextRenderColor(FColor::Yellow);
+
+	// 케이스 안내 — 책상 너머 벽에 큰 텍스트로 7개 케이스 리스트 표시.
+	LegendText = NewObject<UTextRenderComponent>(this, TEXT("LegendText"));
+	LegendText->SetupAttachment(SceneRoot);
+	LegendText->RegisterComponent();
+	LegendText->SetRelativeLocation(FVector(
+		TableOffsetCm.X,
+		TableOffsetCm.Y - RealTableSizeCm.Y * 0.5f - 30.f,
+		TableTopZ + 35.f));   // 책상 위 35cm — Status보다 아래
+	LegendText->SetRelativeRotation(FRotator(0.f, 90.f, 0.f));
+	LegendText->SetText(FText::FromString(TEXT("(loading cases...)")));
+	LegendText->SetHorizontalAlignment(EHTA_Center);
+	LegendText->SetVerticalAlignment(EVRTA_TextCenter);
+	LegendText->SetWorldSize(3.5f);
+	LegendText->SetTextRenderColor(FColor::White);
 }
 
 void ALabEnvironmentActor::UpdateStatusText(const FString& InText)
@@ -239,6 +260,14 @@ void ALabEnvironmentActor::UpdateStatusText(const FString& InText)
 	if (StatusText)
 	{
 		StatusText->SetText(FText::FromString(InText));
+	}
+}
+
+void ALabEnvironmentActor::UpdateLegendText(const FString& InText)
+{
+	if (LegendText)
+	{
+		LegendText->SetText(FText::FromString(InText));
 	}
 }
 

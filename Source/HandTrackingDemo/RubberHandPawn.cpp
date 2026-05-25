@@ -68,6 +68,13 @@ void ARubberHandPawn::BeginPlay()
 	UHeadMountedDisplayFunctionLibrary::SetTrackingOrigin(EHMDTrackingOrigin::LocalFloor);
 	UOculusXRInputFunctionLibrary::SetSimultaneousHandsAndControllersEnabled(true);
 
+	// Recenter는 안전을 위해 HMD valid + GEngine valid 체크 후 호출. lambda timer 제거.
+	if (UHeadMountedDisplayFunctionLibrary::IsHeadMountedDisplayEnabled())
+	{
+		UHeadMountedDisplayFunctionLibrary::ResetOrientationAndPosition(0.f);
+		UE_LOG(LogTemp, Log, TEXT("[RHI] HMD recentered at BeginPlay."));
+	}
+
 	// 합성 손에 Tracker의 SkeletalMesh 공유 (런타임 직후엔 비어있을 수 있음 — 매 틱에서 lazy bind)
 	if (LeftHandTracker && LeftHandSynth && LeftHandTracker->GetSkinnedAsset())
 	{
@@ -124,10 +131,11 @@ void ARubberHandPawn::Tick(float DeltaSeconds)
 	}
 	if (!Lab) return;
 
-	// 상태 텍스트 갱신.
+	// 상태 + 케이스 안내 텍스트 갱신.
 	if (ExperimentManager)
 	{
 		Lab->UpdateStatusText(ExperimentManager->GetStatusString());
+		Lab->UpdateLegendText(ExperimentManager->GetLegendString());
 	}
 
 	// poke 감지 — 양손 검지 끝 위치 vs 버튼.

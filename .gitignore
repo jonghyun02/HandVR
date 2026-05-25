@@ -52,3 +52,8 @@ Desktop.ini
 
 # OMC / 기타 도구 상태 파일
 .omc/
+
+# 외부 플러그인 / Meta XR SDK — 엔진 또는 사용자가 직접 받아와 설치 (저장소 미포함)
+Plugins/
+UnrealMetaXRPlugin*/
+Imports/

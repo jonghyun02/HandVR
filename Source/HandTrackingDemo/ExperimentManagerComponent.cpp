@@ -30,8 +30,12 @@ void UExperimentManagerComponent::BeginPlay()
 	{
 		InitDefaultCases();
 	}
+	CurrentMode = DefaultMode;
+	ApplyModeCases();
 	OpenCsvLog();
-	UE_LOG(LogTemp, Log, TEXT("[RHI] ExperimentManager ready. %d cases loaded."), Cases.Num());
+	UE_LOG(LogTemp, Log, TEXT("[RHI] ExperimentManager ready. mode=%s pilot=%d main=%d active=%d"),
+		CurrentMode == ERHIExperimentMode::Pilot ? TEXT("Pilot") : TEXT("Main"),
+		PilotCases.Num(), MainCases.Num(), Cases.Num());
 }
 
 void UExperimentManagerComponent::EndPlay(const EEndPlayReason::Type Reason)
@@ -43,51 +47,38 @@ void UExperimentManagerComponent::EndPlay(const EEndPlayReason::Type Reason)
 
 void UExperimentManagerComponent::InitDefaultCases()
 {
-	Cases.Reset();
+	// 효과가 확실히 느껴지도록 수치 대폭 확대. Cases.json 미존재 시 폴백.
+	PilotCases.Reset();
+	MainCases.Reset();
 
-	// Phase 1 — 신체소유감 임계값
-	Cases.Add({1, TEXT("Case1: 최상의 동기화 (대조군)"),    0.f,    0.f,  ERHIStimulusType::BrushSync,  30.f, true,  true });
-	Cases.Add({2, TEXT("Case2: 공간오차 5~30cm"),          15.f,    0.f,  ERHIStimulusType::BrushSync,  30.f, true,  false});
-	Cases.Add({3, TEXT("Case3: 시간오차 100~500ms"),        0.f,  300.f,  ERHIStimulusType::BrushSync,  30.f, true,  false});
-	Cases.Add({4, TEXT("Case4: 시/공간 오차 공존"),        15.f,  300.f,  ERHIStimulusType::BrushSync,  30.f, true,  false});
+	// Pilot 7케이스 — 공간(0/30/60/100cm)·시간(0/500/1500/3000ms) 극단 비교. 각 20s.
+	PilotCases.Add({11, TEXT("P1: baseline (0cm/0ms)"),         0.f,    0.f,  ERHIStimulusType::BrushSync, 20.f, true, true });
+	PilotCases.Add({12, TEXT("P2: 공간 30cm"),                 30.f,    0.f,  ERHIStimulusType::BrushSync, 20.f, true, true });
+	PilotCases.Add({13, TEXT("P3: 공간 60cm"),                 60.f,    0.f,  ERHIStimulusType::BrushSync, 20.f, true, false});
+	PilotCases.Add({14, TEXT("P4: 공간 100cm 극단"),          100.f,    0.f,  ERHIStimulusType::BrushSync, 20.f, true, false});
+	PilotCases.Add({15, TEXT("P5: 시간 500ms"),                 0.f,  500.f,  ERHIStimulusType::BrushSync, 20.f, true, true });
+	PilotCases.Add({16, TEXT("P6: 시간 1500ms"),                0.f, 1500.f,  ERHIStimulusType::BrushSync, 20.f, true, false});
+	PilotCases.Add({17, TEXT("P7: 시간 3000ms 극단"),           0.f, 3000.f,  ERHIStimulusType::BrushSync, 20.f, true, false});
 
-	// Phase 2 — 촉각왜곡 검증
-	Cases.Add({5, TEXT("Case5: 신체소유감 활성+불일치"),    0.f,    0.f,  ERHIStimulusType::BrushAsync, 30.f, true,  true });
-	Cases.Add({6, TEXT("Case6: 신체소유감 비활성+불일치"), 30.f,  500.f,  ERHIStimulusType::BrushAsync, 30.f, true,  false});
-	Cases.Add({7, TEXT("Case7: 신체소유감 활성+시각만"),    0.f,    0.f,  ERHIStimulusType::HammerThreat, 15.f, true, true });
-	Cases.Add({8, TEXT("Case8: 신체소유감 비활성+시각만"),30.f,  500.f,  ERHIStimulusType::HammerThreat, 15.f, true, false});
+	// Main 7케이스 — 핵심 가설 + 극단 비교. 각 60s.
+	MainCases.Add({1, TEXT("M1: baseline 동기화"),              0.f,    0.f,  ERHIStimulusType::BrushSync,    60.f, true, true });
+	MainCases.Add({2, TEXT("M2: 공간 60cm 큰 어긋남"),         60.f,    0.f,  ERHIStimulusType::BrushSync,    60.f, true, false});
+	MainCases.Add({3, TEXT("M3: 시간 1500ms 큰 지연"),          0.f, 1500.f,  ERHIStimulusType::BrushSync,    60.f, true, false});
+	MainCases.Add({4, TEXT("M4: 촉각불일치 (시각우위)"),        0.f,    0.f,  ERHIStimulusType::BrushAsync,   60.f, true, true });
+	MainCases.Add({5, TEXT("M5: 위협 망치 (시각만)"),           0.f,    0.f,  ERHIStimulusType::HammerThreat, 45.f, true, true });
+	MainCases.Add({6, TEXT("M6: 공간+시간 동시"),              60.f, 1500.f,  ERHIStimulusType::BrushSync,    60.f, true, false});
+	MainCases.Add({7, TEXT("M7: 극단 (100cm/3000ms)"),        100.f, 3000.f,  ERHIStimulusType::BrushSync,    60.f, true, false});
 }
 
-bool UExperimentManagerComponent::TryLoadCasesFromJson()
+void UExperimentManagerComponent::ApplyModeCases()
 {
-	const FString FullPath = FPaths::ProjectContentDir() / CasesJsonRelativePath;
-	FString Raw;
-	if (!FFileHelper::LoadFileToString(Raw, *FullPath))
-	{
-		return false;
-	}
+	Cases = (CurrentMode == ERHIExperimentMode::Pilot) ? PilotCases : MainCases;
+}
 
-	TSharedPtr<FJsonValue> Root;
-	const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Raw);
-	if (!FJsonSerializer::Deserialize(Reader, Root) || !Root.IsValid())
-	{
-		UE_LOG(LogTemp, Warning, TEXT("[RHI] Cases.json parse failed at %s"), *FullPath);
-		return false;
-	}
-
-	const TArray<TSharedPtr<FJsonValue>>* Arr = nullptr;
-	if (Root->Type == EJson::Array)
-	{
-		Arr = &Root->AsArray();
-	}
-	else if (Root->Type == EJson::Object && Root->AsObject()->HasField(TEXT("cases")))
-	{
-		Arr = &Root->AsObject()->GetArrayField(TEXT("cases"));
-	}
-	if (!Arr) return false;
-
-	Cases.Reset();
-	for (const TSharedPtr<FJsonValue>& V : *Arr)
+static void ParseCaseArray(const TArray<TSharedPtr<FJsonValue>>& Arr, TArray<FRHICaseSpec>& Out)
+{
+	Out.Reset();
+	for (const TSharedPtr<FJsonValue>& V : Arr)
 	{
 		const TSharedPtr<FJsonObject> Obj = V->AsObject();
 		if (!Obj.IsValid()) continue;
@@ -107,9 +98,60 @@ bool UExperimentManagerComponent::TryLoadCasesFromJson()
 		else if (StimStr == TEXT("HammerThreat")) C.Stimulus = ERHIStimulusType::HammerThreat;
 		else                                      C.Stimulus = ERHIStimulusType::None;
 
-		Cases.Add(C);
+		Out.Add(C);
 	}
-	return Cases.Num() > 0;
+}
+
+bool UExperimentManagerComponent::TryLoadCasesFromJson()
+{
+	const FString FullPath = FPaths::ProjectContentDir() / CasesJsonRelativePath;
+	FString Raw;
+	if (!FFileHelper::LoadFileToString(Raw, *FullPath))
+	{
+		return false;
+	}
+
+	TSharedPtr<FJsonValue> Root;
+	const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Raw);
+	if (!FJsonSerializer::Deserialize(Reader, Root) || !Root.IsValid())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[RHI] Cases.json parse failed at %s"), *FullPath);
+		return false;
+	}
+
+	PilotCases.Reset();
+	MainCases.Reset();
+
+	// 새 포맷: { casesPilot:[...], casesMain:[...] }
+	if (Root->Type == EJson::Object)
+	{
+		const TSharedPtr<FJsonObject> Obj = Root->AsObject();
+		if (Obj->HasField(TEXT("casesPilot")))
+		{
+			ParseCaseArray(Obj->GetArrayField(TEXT("casesPilot")), PilotCases);
+		}
+		if (Obj->HasField(TEXT("casesMain")))
+		{
+			ParseCaseArray(Obj->GetArrayField(TEXT("casesMain")), MainCases);
+		}
+		// 구 포맷 호환: { cases:[...] } → MainCases에 적재.
+		if (PilotCases.Num() == 0 && MainCases.Num() == 0 && Obj->HasField(TEXT("cases")))
+		{
+			ParseCaseArray(Obj->GetArrayField(TEXT("cases")), MainCases);
+		}
+	}
+	else if (Root->Type == EJson::Array)
+	{
+		// 최구 포맷: top-level array → MainCases로.
+		ParseCaseArray(Root->AsArray(), MainCases);
+	}
+
+	const bool bAnyLoaded = (PilotCases.Num() + MainCases.Num()) > 0;
+	if (bAnyLoaded)
+	{
+		UE_LOG(LogTemp, Log, TEXT("[RHI] Cases.json loaded: pilot=%d main=%d"), PilotCases.Num(), MainCases.Num());
+	}
+	return bAnyLoaded;
 }
 
 ARubberHandPawn* UExperimentManagerComponent::GetOwnerPawn() const
@@ -120,43 +162,73 @@ ARubberHandPawn* UExperimentManagerComponent::GetOwnerPawn() const
 void UExperimentManagerComponent::StartExperiment()
 {
 	if (bRunning) return;
-	if (Cases.Num() == 0) { InitDefaultCases(); }
+	if (Cases.Num() == 0) { ApplyModeCases(); }
+	if (Cases.Num() == 0) { InitDefaultCases(); ApplyModeCases(); }
 
 	bRunning = true;
 	ExperimentStartTime = GetWorld()->GetTimeSeconds();
-	LogEvent(TEXT("ExperimentStart"), FString::Printf(TEXT("cases=%d"), Cases.Num()));
+	LogEvent(TEXT("ExperimentStart"),
+		FString::Printf(TEXT("mode=%s cases=%d"),
+			CurrentMode == ERHIExperimentMode::Pilot ? TEXT("Pilot") : TEXT("Main"),
+			Cases.Num()));
 	BeginCase(0);
 }
 
 void UExperimentManagerComponent::StopExperiment()
 {
 	if (!bRunning) return;
-	if (UWorld* W = GetWorld()) { W->GetTimerManager().ClearTimer(CaseTimer); }
 	DespawnStimulusActors();
 	ClearSurveyWidget();
-	bRunning = false;
-	CurrentCaseIndex = INDEX_NONE;
 	LogEvent(TEXT("ExperimentStop"), TEXT(""));
-	FlushCsv();
+	ReturnToIdle();
+}
 
-	// 가상 손 효과도 리셋(다음 시작까지 대기 상태).
-	if (ARubberHandPawn* P = GetOwnerPawn())
-	{
-		P->SetSpatialOffsetCm(0.f);
-		P->SetTemporalDelayMs(0.f);
-	}
+void UExperimentManagerComponent::SetExperimentMode(ERHIExperimentMode NewMode)
+{
+	if (CurrentMode == NewMode && Cases.Num() > 0) return;
+	if (bRunning) { StopExperiment(); }
+	CurrentMode = NewMode;
+	ApplyModeCases();
+	LogEvent(TEXT("ModeChange"),
+		FString::Printf(TEXT("mode=%s count=%d"),
+			NewMode == ERHIExperimentMode::Pilot ? TEXT("Pilot") : TEXT("Main"),
+			Cases.Num()));
+}
+
+void UExperimentManagerComponent::ToggleExperimentMode()
+{
+	SetExperimentMode(CurrentMode == ERHIExperimentMode::Pilot
+		? ERHIExperimentMode::Main
+		: ERHIExperimentMode::Pilot);
 }
 
 void UExperimentManagerComponent::SelectCase(int32 CaseId)
 {
-	// CaseId = 9 → Stop
+	// 패널 버튼 매핑 (1~9):
+	//   9 = Stop
+	//   8 = Pilot/Main 모드 토글
+	//   1~7 = 현재 모드 케이스 N번째 (Pilot은 1~7, Main은 1~5만 유효)
 	if (CaseId == 9)
 	{
 		if (bRunning) { StopExperiment(); }
 		LogEvent(TEXT("ManualStop"), TEXT(""));
 		return;
 	}
-	if (CaseId < 1 || CaseId > 8) return;
+	if (CaseId == 8)
+	{
+		ToggleExperimentMode();
+		return;
+	}
+	if (CaseId < 1 || CaseId > 7) return;
+
+	if (Cases.Num() == 0) { ApplyModeCases(); }
+	if (Cases.Num() == 0) { InitDefaultCases(); ApplyModeCases(); }
+	const int32 Index = CaseId - 1;
+	if (!Cases.IsValidIndex(Index))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[RHI] SelectCase %d out of range (mode has %d cases)"), CaseId, Cases.Num());
+		return;
+	}
 
 	// 진행 중이면 정리 후 즉시 새 케이스 시작.
 	if (bRunning)
@@ -165,22 +237,56 @@ void UExperimentManagerComponent::SelectCase(int32 CaseId)
 		DespawnStimulusActors();
 		ClearSurveyWidget();
 	}
-	if (Cases.Num() == 0) { InitDefaultCases(); }
 
 	bRunning = true;
 	if (ExperimentStartTime <= 0.0)
 	{
 		ExperimentStartTime = GetWorld()->GetTimeSeconds();
 	}
-	LogEvent(TEXT("ManualSelect"), FString::Printf(TEXT("caseId=%d"), CaseId));
-	BeginCase(CaseId - 1);   // 1-indexed → 0-indexed
+	LogEvent(TEXT("ManualSelect"), FString::Printf(TEXT("mode=%s caseId=%d"),
+		CurrentMode == ERHIExperimentMode::Pilot ? TEXT("Pilot") : TEXT("Main"),
+		CaseId));
+	BeginCase(Index);
+}
+
+FString UExperimentManagerComponent::GetLegendString() const
+{
+	const TCHAR* ModeTag = (CurrentMode == ERHIExperimentMode::Pilot) ? TEXT("PILOT") : TEXT("MAIN");
+	FString Out = FString::Printf(TEXT("[%s MODE]   [8]: switch  [9]: stop\n"), ModeTag);
+	Out += TEXT("--------------------------------\n");
+
+	for (int32 i = 0; i < Cases.Num() && i < 7; ++i)
+	{
+		const FRHICaseSpec& C = Cases[i];
+		const TCHAR* StimStr =
+			C.Stimulus == ERHIStimulusType::BrushSync    ? TEXT("BrushSync")  :
+			C.Stimulus == ERHIStimulusType::BrushAsync   ? TEXT("BrushAsync") :
+			C.Stimulus == ERHIStimulusType::HammerThreat ? TEXT("Hammer")     : TEXT("None");
+		Out += FString::Printf(
+			TEXT("[%d] %4.0fcm  %5.0fms  %s\n     %s\n"),
+			i + 1, C.SpatialErrorCm, C.TemporalDelayMs, StimStr, *C.Label);
+	}
+	return Out;
 }
 
 FString UExperimentManagerComponent::GetStatusString() const
 {
+	const TCHAR* ModeTag = (CurrentMode == ERHIExperimentMode::Pilot) ? TEXT("PILOT") : TEXT("MAIN");
+	const int32 N = Cases.Num();
+
+	// 누적 세션 시간 (1시간 budget 대비 진행률).
+	float SessionMin = 0.f;
+	if (ExperimentStartTime > 0.0 && GetWorld())
+	{
+		SessionMin = static_cast<float>((GetWorld()->GetTimeSeconds() - ExperimentStartTime) / 60.0);
+	}
+
 	if (!bRunning || !Cases.IsValidIndex(CurrentCaseIndex))
 	{
-		return TEXT("IDLE\n[1]~[8]:Case  [S]:Stop");
+		// IDLE 표시 — [8]=ModeToggle, [9]=Stop. 1~N은 현재 모드 케이스 수.
+		return FString::Printf(
+			TEXT("IDLE  [%s %d cases]\n[1]~[%d]:Case  [8]:Mode  [9]:Stop\nSession %.1f / 60 min"),
+			ModeTag, N, FMath::Min(N, 7), SessionMin);
 	}
 	const FRHICaseSpec& C = Cases[CurrentCaseIndex];
 	float Remain = 0.f;
@@ -194,8 +300,9 @@ FString UExperimentManagerComponent::GetStatusString() const
 		C.Stimulus == ERHIStimulusType::BrushAsync   ? TEXT("BrushAsync") :
 		C.Stimulus == ERHIStimulusType::HammerThreat ? TEXT("Hammer")     : TEXT("None");
 	return FString::Printf(
-		TEXT("CASE %d / 8\n%.0fcm  %.0fms  %s\n%.1fs left"),
-		C.CaseId, C.SpatialErrorCm, C.TemporalDelayMs, StimStr, Remain);
+		TEXT("[%s] %d / %d  (%s)\n%.0fcm  %.0fms  %s\n%.1fs left   Session %.1f/60 min"),
+		ModeTag, CurrentCaseIndex + 1, N, *C.Label,
+		C.SpatialErrorCm, C.TemporalDelayMs, StimStr, Remain, SessionMin);
 }
 
 void UExperimentManagerComponent::BeginCase(int32 Index)
@@ -261,14 +368,15 @@ void UExperimentManagerComponent::EndCurrentCase()
 	LogEvent(TEXT("CaseEnd"), FString::Printf(TEXT("caseId=%d"), C.CaseId));
 	OnCaseEnded.Broadcast(C.CaseId);
 
+	// 자동 진행 OFF — 케이스 끝나면 IDLE로 돌아감. 사용자가 패널 버튼으로 다음 케이스 직접 선택.
 	if (C.bShowSurveyOnEnd)
 	{
 		SpawnSurveyWidget();
-		// 다음 케이스로의 진행은 OnSurveySubmitted에서.
 	}
 	else
 	{
-		BeginCase(CurrentCaseIndex + 1);
+		// 설문 없이 그대로 IDLE.
+		ReturnToIdle();
 	}
 }
 
@@ -278,7 +386,23 @@ void UExperimentManagerComponent::OnSurveySubmitted(const FRHISurveyResponse& Re
 		FString::Printf(TEXT("caseId=%d ownership=%d distort=%d visualDom=%d"),
 			Response.CaseId, Response.BodyOwnership, Response.TactileDistort, Response.VisualDominance));
 	ClearSurveyWidget();
-	BeginCase(CurrentCaseIndex + 1);
+	// 자동 진행 X — 설문 후에도 IDLE로 돌아감.
+	ReturnToIdle();
+}
+
+void UExperimentManagerComponent::ReturnToIdle()
+{
+	if (UWorld* W = GetWorld()) { W->GetTimerManager().ClearTimer(CaseTimer); }
+	bRunning = false;
+	CurrentCaseIndex = INDEX_NONE;
+
+	// 가상 손 효과 리셋 (다음 선택 전까지 동기화 상태로).
+	if (ARubberHandPawn* P = GetOwnerPawn())
+	{
+		P->SetSpatialOffsetCm(0.f);
+		P->SetTemporalDelayMs(0.f);
+	}
+	FlushCsv();
 }
 
 void UExperimentManagerComponent::SpawnSurveyWidget()

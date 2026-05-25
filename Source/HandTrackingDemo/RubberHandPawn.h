@@ -76,7 +76,7 @@ public:
 	// ----- 실험 파라미터 (매 틱 적용) -----
 
 	/** 가상 손에 적용되는 공간 오프셋 (cm). 양수면 사용자 forward 방향으로 떨어짐. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "RHI|Offset", meta = (ClampMin = 0.0, ClampMax = 60.0))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "RHI|Offset", meta = (ClampMin = 0.0, ClampMax = 200.0))
 	float SpatialOffsetCm = 0.0f;
 
 	/** 공간 오프셋이 적용되는 방향 (Pawn local space). 기본 = HMD forward. */
@@ -84,7 +84,7 @@ public:
 	FVector SpatialOffsetDirection = FVector(1.f, 0.f, 0.f);
 
 	/** 시간 지연 (ms). ring buffer에서 N ms 전 본을 가져옴. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "RHI|Delay", meta = (ClampMin = 0.0, ClampMax = 1000.0))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "RHI|Delay", meta = (ClampMin = 0.0, ClampMax = 3000.0))
 	float TemporalDelayMs = 0.0f;
 
 	/** 합성 손 가시성 (실험 시작 전엔 끔). */
@@ -92,20 +92,20 @@ public:
 	bool bShowSyntheticHand = true;
 
 	UFUNCTION(BlueprintCallable, Category = "RHI|Offset")
-	void SetSpatialOffsetCm(float NewValue) { SpatialOffsetCm = FMath::Clamp(NewValue, 0.f, 60.f); }
+	void SetSpatialOffsetCm(float NewValue) { SpatialOffsetCm = FMath::Clamp(NewValue, 0.f, 200.f); }
 
 	UFUNCTION(BlueprintCallable, Category = "RHI|Delay")
-	void SetTemporalDelayMs(float NewValue) { TemporalDelayMs = FMath::Clamp(NewValue, 0.f, 1000.f); }
+	void SetTemporalDelayMs(float NewValue) { TemporalDelayMs = FMath::Clamp(NewValue, 0.f, 3000.f); }
 
 	UFUNCTION(BlueprintCallable, Category = "RHI|Synthetic")
 	void SetSyntheticHandVisible(bool bVisible);
 
 private:
-	// 본 트랜스폼 ring buffer. 최대 1초 기록.
+	// 본 트랜스폼 ring buffer. 시간 지연 케이스(최대 3000ms) 수용 위해 3.5초 분량.
 	TArray<FRHIBoneSnapshot> LeftBuffer;
 	TArray<FRHIBoneSnapshot> RightBuffer;
 
-	static constexpr float MaxBufferDurationSec = 1.0f;
+	static constexpr float MaxBufferDurationSec = 3.5f;
 
 	// 컨트롤 패널 poke 검출 — 직전 틱 hit ID로 enter 검출(엣지 트리거).
 	int32 LastHitButton = 0;
