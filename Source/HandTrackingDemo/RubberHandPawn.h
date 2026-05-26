@@ -23,8 +23,7 @@ class UExperimentManagerComponent;
  *                                             매 틱 Tracker 본을 ring buffer에 push, 지연된 본을
  *                                             공간 오프셋 적용해서 Synth로 복사 → RHI 핵심 메커니즘
  *
- * AHandPawn과 차이점:
- *  - 룬 드로잉 컴포넌트 없음 (실험과 무관)
+ * 핵심:
  *  - 합성 손 + ring buffer + offset (가짜손 착각 유도)
  *  - ExperimentManager 컴포넌트 부착
  */

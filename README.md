@@ -96,21 +96,10 @@ PrivateDependencyModuleNames = { "Slate","SlateCore","Json","JsonUtilities" };
 | `BrushActor.h/.cpp` | 동기/비동기 터치 자극 (Brush Sync / Async) |
 | `HammerActor.h/.cpp` | 비동기 위협 자극 (4단계: WindUp → Strike → Impact → Recovery) |
 
-### 4.4 Source — 룬 드로잉 (부가 / legacy)
-| 파일 | 역할 |
-|---|---|
-| `HandPawn.h/.cpp`, `HandGameMode.h/.cpp` | 룬 드로잉용 별도 Pawn / GameMode |
-| `RuneTypes.h`, `RuneDrawingComponent.*`, `RuneRecognizer.*`, `RuneSpellComponent.*` | 핀치 기반 도형 인식 + 6종 마법 디스패치 |
-| `RuneRecognizerEvalCommandlet.*` | 자동 정확도 평가 commandlet |
-
-> 룬 시스템은 본 보고서의 RHI 실험과 무관한 베이스 프로젝트 산출물입니다.
-> 동일 솔루션 안에 있지만 `RubberHandGameMode`만 사용하면 RHI 실험 흐름만 작동합니다.
-
-### 4.5 Content / 실험 데이터
+### 4.4 Content / 실험 데이터
 | 파일 | 역할 |
 |---|---|
 | `Content/Experiment/Cases.json` | RHI 8케이스 정의 (보고서 Phase 1 + Phase 2) |
-| `Content/Eval/RuneEvalSet.json` | 룬 도형 평가셋 (legacy) |
 
 ---
 
@@ -182,7 +171,7 @@ LeftHand->ConfidenceBehavior  = EOculusXRConfidenceBehavior::None; // 신뢰도 
 컨트롤러를 쥔 상태에서도 손가락 관절 추적이 살아 있어 **신체소유감의 단절을 방지**합니다.
 
 ```cpp
-void AHandPawn::BeginPlay() {
+void ARubberHandPawn::BeginPlay() {
     Super::BeginPlay();
     UHeadMountedDisplayFunctionLibrary::SetTrackingOrigin(EHMDTrackingOrigin::LocalFloor);
     UOculusXRInputFunctionLibrary::SetSimultaneousHandsAndControllersEnabled(true);
@@ -359,13 +348,3 @@ Pilot 결과를 바탕으로 **개인별 임계점 후보 근처에서 충분히
 | 컨트롤러 잡으면 손 트래킹 끊김 | `SetSimultaneousHandsAndControllersEnabled(true)` 호출 누락 |
 | Synth 손이 갑자기 사라짐 | `ConfidenceBehavior`가 `None`이 아닐 때 발생. RHI Pawn에선 강제 None |
 | 설문 위젯이 안 뜸 | `ExperimentManager.SurveyWidgetClass`에 BP 클래스 미할당. `BindWidgetOptional`이라 BP 없어도 키 입력 fallback 가능 |
-| 시스템 메뉴가 자꾸 뜸 | 엄지+검지 시스템 핀치 제스처. (룬 시스템 한정) 가운데 손가락 핀치 사용 |
-
----
-
-평가 commandlet:
-```bat
-"C:\Program Files\Epic Games\UE_5.7\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" ^
-  HandTrackingDemo.uproject -run=RuneRecognizerEval -log
-```
-→ `Saved/Logs/HandTrackingDemo.log`에 confusion matrix + macro F1 출력.
