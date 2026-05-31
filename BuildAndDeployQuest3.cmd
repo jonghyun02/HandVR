@@ -23,7 +23,8 @@ call "%UE_ROOT%\Engine\Build\BatchFiles\RunUAT.bat" ^
   -platform=Android ^
   -clientconfig=Development ^
   -targetplatform=Android ^
-  -cookflavor=ASTC ^
+  -cookflavor=OpenXR ^
+  -map=/Game/Maps/Main ^
   -build -cook -stage -package -pak -deploy ^
   -device=%DEVICE% ^
   -utf8output

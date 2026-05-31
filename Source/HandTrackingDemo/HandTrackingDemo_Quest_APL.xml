@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root xmlns:android="http://schemas.android.com/apk/res/android">
+	<androidManifestUpdates>
+		<loopElements tag="activity">
+			<setStringFromAttribute result="activityName" tag="$" name="android:name"/>
+			<setBoolIsEqual result="bGameActivity" arg1="$S(activityName)" arg2="com.epicgames.unreal.GameActivity"/>
+			<if condition="bGameActivity">
+				<true>
+					<addAttribute tag="$" name="android:excludeFromRecents" value="true"/>
+
+					<loopElements tag="category">
+						<setStringFromAttribute result="categoryName" tag="$" name="android:name"/>
+						<setBoolIsEqual result="bLauncher" arg1="$S(categoryName)" arg2="android.intent.category.LAUNCHER"/>
+						<if condition="bLauncher">
+							<true>
+								<removeElement tag="$"/>
+							</true>
+						</if>
+					</loopElements>
+
+					<setElement result="questInfoIntent" value="category"/>
+					<addAttribute tag="$questInfoIntent" name="android:name" value="android.intent.category.INFO"/>
+					<addElement tag="intent-filter" name="questInfoIntent" once="true"/>
+				</true>
+			</if>
+		</loopElements>
+	</androidManifestUpdates>
+</root>

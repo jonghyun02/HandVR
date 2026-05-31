@@ -1,0 +1,4 @@
+LevelEditorSubsystem=<Object '/Engine/Transient.EditorEngine_0:LevelEditorSubsystem_0' (0x00000158FF1C2760) Class 'LevelEditorSubsystem'>
+new_level_returned=False
+save_asset=True
+asset_exists=True

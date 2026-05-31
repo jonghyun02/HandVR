@@ -2,12 +2,16 @@
 	"FileVersion": 3,
 	"EngineAssociation": "5.7",
 	"Category": "",
-	"Description": "Quest 3 Hand Tracking Demo",
+	"Description": "Quest 3 Hand Tracking - VR Cognitive Distortion Experiments (RHI / Visual Capture / Proprioceptive Drift)",
 	"Modules": [
 		{
 			"Name": "HandTrackingDemo",
 			"Type": "Runtime",
-			"LoadingPhase": "Default"
+			"LoadingPhase": "Default",
+			"AdditionalDependencies": [
+				"Engine",
+				"UMG"
+			]
 		}
 	],
 	"Plugins": [
@@ -36,5 +40,9 @@
 			"Name": "EnhancedInput",
 			"Enabled": true
 		}
+	],
+	"TargetPlatforms": [
+		"Android",
+		"Windows"
 	]
 }

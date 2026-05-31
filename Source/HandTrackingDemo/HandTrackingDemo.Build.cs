@@ -1,3 +1,4 @@
+using System.IO;
 using UnrealBuildTool;
 
 public class HandTrackingDemo : ModuleRules
@@ -18,16 +19,15 @@ public class HandTrackingDemo : ModuleRules
 			"OculusXRInput",
 			"OculusXRHMD",
 			"UMG",
-			"NavigationSystem",
-			"AIModule"
+			"Slate",
+			"SlateCore"
 		});
 
-		PrivateDependencyModuleNames.AddRange(new string[]
+		PrivateDependencyModuleNames.AddRange(new string[] { });
+
+		if (Target.Platform == UnrealTargetPlatform.Android)
 		{
-			"Slate",
-			"SlateCore",
-			"Json",
-			"JsonUtilities"
-		});
+			AdditionalPropertiesForReceipt.Add("AndroidPlugin", Path.Combine(ModuleDirectory, "HandTrackingDemo_Quest_APL.xml"));
+		}
 	}
 }

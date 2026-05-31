@@ -57,3 +57,8 @@ Desktop.ini
 Plugins/
 UnrealMetaXRPlugin*/
 Imports/
+
+# 다운로드한 원본 3D 모델 소스 (로컬 보관, 추출본은 Content/Imported에 있음)
+assets/
+assets/
+

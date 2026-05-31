@@ -1,4 +1,5 @@
 using UnrealBuildTool;
+using System.Collections.Generic;
 
 public class HandTrackingDemoEditorTarget : TargetRules
 {
@@ -7,6 +8,6 @@ public class HandTrackingDemoEditorTarget : TargetRules
 		Type = TargetType.Editor;
 		DefaultBuildSettings = BuildSettingsVersion.V6;
 		IncludeOrderVersion = EngineIncludeOrderVersion.Latest;
-		ExtraModuleNames.AddRange(new string[] { "HandTrackingDemo" });
+		ExtraModuleNames.AddRange( new string[] { "HandTrackingDemo" } );
 	}
 }
