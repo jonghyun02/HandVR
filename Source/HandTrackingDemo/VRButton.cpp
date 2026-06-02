@@ -36,13 +36,16 @@ AHTDButton::AHTDButton()
 
 	LabelWidget = CreateDefaultSubobject<UWidgetComponent>(TEXT("LabelWidget"));
 	LabelWidget->SetupAttachment(Root);
-	// Label plane floats just in front of the cube, facing the player (pawn is at -X looking +X).
-	LabelWidget->SetRelativeLocation(FVector(-3.0f, 0.0f, 0.0f));
+	// Label plane floats ABOVE the cube (not on its face), facing the player (pawn is at -X looking +X).
+	// The cube is 14×8×4 cm (half-height 2 cm in Z), so centering the ~22×11 cm label at Z=+9 cm puts its whole
+	// footprint above the button face — multi-line Korean ("실험1\n고무손") no longer collides with / is clipped by
+	// the button body (fixes the "글자가 버튼에 잘림" report; user asked to lift the text up).
+	LabelWidget->SetRelativeLocation(FVector(-3.0f, 0.0f, 9.0f));
 	LabelWidget->SetRelativeRotation(FRotator(0.0f, 180.0f, 0.0f));
 	LabelWidget->SetWidgetSpace(EWidgetSpace::World);
-	LabelWidget->SetDrawSize(FVector2D(400.0f, 200.0f));
+	LabelWidget->SetDrawSize(FVector2D(440.0f, 220.0f));
 	LabelWidget->SetWidgetClass(UVRLabelWidget::StaticClass());
-	LabelWidget->SetWorldScale3D(FVector(0.05f)); // 400 × 200 px × 0.05 ≈ 20 × 10 cm plane
+	LabelWidget->SetWorldScale3D(FVector(0.05f)); // 440 × 220 px × 0.05 ≈ 22 × 11 cm plane, floating above the cube
 	LabelWidget->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 }
 

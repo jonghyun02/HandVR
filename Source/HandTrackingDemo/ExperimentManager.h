@@ -89,6 +89,12 @@ private:
 	// 결과 보기 패널을 띄우고/지운다. ShowResultsPanel은 최근 CSV를 파싱해 "항목: 점수" 형식으로 출력.
 	void ShowResultsPanel();
 	void DespawnResultsPanel();
+
+	// 실험 설명 패널 — 실험 진입 시 사용자 앞 위쪽에 "이 실험이 무엇인지"를 띄운다. 실험 종료/전환 시 제거.
+	void ShowExperimentInfo(const FString& Title, const FString& Body);
+	void DespawnExperimentInfo();
+	// 실험 종류별 설명 텍스트(제목/본문)를 채운다.
+	static void GetExperimentInfo(EExperimentType Type, FString& OutTitle, FString& OutBody);
 	// <ProjectSavedDir>의 SurveyResults_*.csv 중 가장 최근(이름=타임스탬프 기준) 파일 경로. 없으면 빈 문자열.
 	FString FindLatestSurveyCsv() const;
 
@@ -143,4 +149,9 @@ private:
 	UPROPERTY() AActor*           ResultsPanel      = nullptr;
 	UPROPERTY() UWidgetComponent* ResultsTitleWidget = nullptr;
 	UPROPERTY() UWidgetComponent* ResultsBodyWidget  = nullptr;
+
+	// 실험 설명 — 월드 공간 텍스트 패널(액터 + UWidgetComponent×2). Experiment 상태에서만 존재.
+	UPROPERTY() AActor*           InfoPanel       = nullptr;
+	UPROPERTY() UWidgetComponent* InfoTitleWidget = nullptr;
+	UPROPERTY() UWidgetComponent* InfoBodyWidget  = nullptr;
 };

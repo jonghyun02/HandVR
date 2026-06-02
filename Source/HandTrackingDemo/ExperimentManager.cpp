@@ -68,9 +68,17 @@ namespace
 	}
 
 	// Fit boxes (cm) used both at spawn and in tick so the working-part offset stays consistent.
-	const FVector kBrushFitBox(30.0f, 30.0f, 30.0f);
-	const FVector kHammerFitBox(33.0f, 33.0f, 33.0f);
+	// Brush native bounds ≈ 6.1 × 4.2 × 21.1 cm (longest LOCAL axis = Z). Hammer ≈ 14.8 × 34.1 × 4.5 cm (longest = Y).
+	const FVector kBrushFitBox(24.0f, 24.0f, 24.0f);  // brush rendered ~24 cm long (real paint brush scale)
+	const FVector kHammerFitBox(33.0f, 33.0f, 33.0f); // hammer rendered ~33 cm long
 	const FRotator kBrushRot(0.0f, 0.0f, 90.0f);  // long axis swept roughly horizontal across the hand
+
+	// Which END of each mesh's LONGEST local axis is the WORKING part that must land on the hand. The bristle /
+	// hammer-head end cannot be inferred from bounds (symmetric) — these are set from a direct render of the mesh
+	// (see .omc/render_props). Flip a bool if the wrong end lands on the hand in-headset.
+	const bool kBrushBristleAtPositiveEnd = true;  // brush: bristle tip = +Z end?  (verified via render)
+	const bool kHammerHeadAtPositiveEnd   = true;  // hammer: head = +Y end?        (verified via render)
+
 	// Threat-hammer rest orientation (user-tuned): yaw 90 = rotated 90° counter-clockwise (top-down) from the
 	// old 180; roll 90 = rotated 90° about the handle's long axis so the FLAT STRIKING FACE lands on the hand.
 	// If the face points the wrong way in-headset flip kHammerStrikeRoll's sign (±90); if the heading is off
@@ -226,7 +234,7 @@ void AExperimentManager::EnterExperiment(EExperimentType Type)
 	// target dimension (shape preserved); the engine-cube fallback is fitted per-axis (cube is 100³).
 	// This reads each mesh's actual bounds, so props render at real-world size regardless of FBX import units.
 	// Tint is wired to a dynamic BasicShapeMaterial "Color" so props never render as the default grey checker.
-	auto MakeMesh = [&](FName Name, UStaticMesh* MeshOrNull, FVector Loc, FRotator Rot, FVector TargetBoxCm, FLinearColor Tint) -> AStaticMeshActor*
+	auto MakeMesh = [&](FName Name, UStaticMesh* MeshOrNull, FVector Loc, FRotator Rot, FVector TargetBoxCm, FLinearColor Tint, bool bForceTint = false) -> AStaticMeshActor*
 	{
 		AStaticMeshActor* A = W->SpawnActor<AStaticMeshActor>(AStaticMeshActor::StaticClass(), FTransform(Rot, Loc), Params);
 		if (!A) return nullptr;
@@ -261,9 +269,10 @@ void AExperimentManager::EnterExperiment(EExperimentType Type)
 			SMC->SetWorldScale3D(Scale);
 			SMC->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 
-			// ONLY tint the cube fallback (null mesh) — imported meshes (brush/hammer) keep their own imported
-			// material+textures (e.g. SM_PaintBrush -> PaintBrush3). Overriding slot 0 here would hide that texture.
-			if (!MeshOrNull)
+			// Tint the cube fallback (null mesh) AND any basic engine shape passed with bForceTint (e.g. the red
+			// VC target sphere). Imported meshes (brush/hammer) keep their own imported material+textures
+			// (e.g. SM_PaintBrush -> PaintBrush3v2): overriding slot 0 for those would hide the texture.
+			if (!MeshOrNull || bForceTint)
 			{
 				static UMaterialInterface* BaseMat = LoadObject<UMaterialInterface>(nullptr, TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial"));
 				if (BaseMat)
@@ -298,7 +307,7 @@ void AExperimentManager::EnterExperiment(EExperimentType Type)
 				// Place so the bristle tip (+end of the longest local axis) sits ~1 cm above the hand surface.
 				const FVector HandLoc = P->GetVisualWristLocation(/*right*/ true);
 				const float   Scale   = ComputeFitScale(BrushMesh, kBrushFitBox);
-				const FVector ToTip   = WorkingPartWorldOffset(BrushMesh, Scale, kBrushRot, /*bPositiveEnd*/ true);
+				const FVector ToTip   = WorkingPartWorldOffset(BrushMesh, Scale, kBrushRot, /*bPositiveEnd*/ kBrushBristleAtPositiveEnd);
 				RHIBrush->SetActorLocation(HandLoc + FVector(0.0f, 0.0f, 1.0f) - ToTip);
 			}
 			// Brush-stroke SFX (runtime load; quiet null if missing). PrevBrushOff reset so the first sweep fires.
@@ -312,13 +321,17 @@ void AExperimentManager::EnterExperiment(EExperimentType Type)
 			// Snap visual hands +30 cm laterally — instant, no fade. Real wrist position unchanged.
 			P->SetVisualOffset(FVector(0.0f, LateralOffsetCm, 0.0f), FVector(0.0f, LateralOffsetCm, 0.0f));
 
-			// Target object on desk — user is supposed to try to touch it with their seen hand.
+			// Target on desk — a plain RED SPHERE the user reaches for with the seen hand. (Previously this used
+			// TargetMesh = SM_ClawHammer, which is why a HAMMER appeared on the desk in 실험2 — removed per request.
+			// The hammer now belongs only to 실험4/Threat.)
+			static UStaticMesh* SphereMesh = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Sphere.Sphere"));
 			VCTarget = MakeMesh(TEXT("VC_Target"),
-				TargetMesh,
-				DeskTopCtr + FVector(0.0f, 0.0f, 5.0f),
-				FRotator(0.0f, 90.0f, 0.0f),
-				TargetMesh ? FVector(30.0f, 30.0f, 30.0f) : FVector(6.0f, 6.0f, 6.0f),
-				FLinearColor(1.0f, 0.3f, 0.3f));
+				SphereMesh,
+				DeskTopCtr + FVector(0.0f, 0.0f, 6.0f),
+				FRotator::ZeroRotator,
+				FVector(8.0f, 8.0f, 8.0f),
+				FLinearColor(1.0f, 0.15f, 0.15f),
+				/*bForceTint*/ true);
 			break;
 		}
 
@@ -356,6 +369,13 @@ void AExperimentManager::EnterExperiment(EExperimentType Type)
 		}
 
 		default: break;
+	}
+
+	// 실험 설명 패널 — "이 실험이 무엇인지" 사용자 앞 위쪽에 안내(시작 전/진행 중 항상 보임).
+	{
+		FString InfoTitle, InfoBody;
+		GetExperimentInfo(Type, InfoTitle, InfoBody);
+		ShowExperimentInfo(InfoTitle, InfoBody);
 	}
 }
 
@@ -503,6 +523,111 @@ void AExperimentManager::DespawnResultsPanel()
 	ResultsBodyWidget  = nullptr;
 }
 
+// --- 실험 설명 패널 -----------------------------------------------------------------------------------------------
+
+void AExperimentManager::GetExperimentInfo(EExperimentType Type, FString& OutTitle, FString& OutBody)
+{
+	switch (Type)
+	{
+		case EExperimentType::RHI:
+			OutTitle = TEXT("실험 1 · 고무손 착각 (RHI)");
+			OutBody  = TEXT("붓이 당신의 손을 일정한 속도로 쓰다듬습니다.\n"
+			               "손을 책상에 가만히 올려두고 붓의 움직임을 바라보세요.\n"
+			               "보이는 자극과 느껴지는 촉각이 일치할 때\n"
+			               "그 손을 '내 손'처럼 느끼게 되는지 확인하는 실험입니다.");
+			break;
+		case EExperimentType::VisualCapture:
+			OutTitle = TEXT("실험 2 · 시각적 포착");
+			OutBody  = TEXT("보이는 손이 실제 손보다 옆으로 이동해 있습니다.\n"
+			               "책상 위 빨간 표적을 '보이는 손'으로 만져 보세요.\n"
+			               "눈으로 본 위치와 실제 위치가 다를 때\n"
+			               "어느 쪽을 더 믿게 되는지 확인하는 실험입니다.");
+			break;
+		case EExperimentType::Drift:
+			OutTitle = TEXT("실험 3 · 고유수용감각 표류");
+			OutBody  = TEXT("보이는 손의 위치가 천천히 좌우로 흔들립니다.\n"
+			               "파란 표식은 당신의 '실제' 손 위치입니다.\n"
+			               "시각 정보 때문에 실제 손 위치 감각이\n"
+			               "점점 표류하는지 확인하는 실험입니다.");
+			break;
+		case EExperimentType::Threat:
+			OutTitle = TEXT("실험 4 · 망치 위협");
+			OutBody  = TEXT("망치가 당신의 손 위로 반복해서 내려칩니다.\n"
+			               "(실제로 손에 닿지는 않습니다)\n"
+			               "가상의 위협 자극이 실제 위협처럼\n"
+			               "느껴지는지(정서적 반응) 확인하는 실험입니다.");
+			break;
+		default:
+			OutTitle = TEXT("실험");
+			OutBody  = TEXT("");
+			break;
+	}
+}
+
+void AExperimentManager::ShowExperimentInfo(const FString& Title, const FString& Body)
+{
+	DespawnExperimentInfo();
+
+	UWorld* W = GetWorld();
+	if (!W) return;
+
+	FActorSpawnParameters Params;
+	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	// 사용자 정면, 책상/손/프롭(z≈75~80)과 중단 버튼(z=100) 위쪽에 띄워 시야를 가리지 않게 한다.
+	const FVector PanelLoc = FVector(60.0f, 0.0f, 124.0f);
+	InfoPanel = W->SpawnActor<AActor>(AActor::StaticClass(), FTransform(PanelLoc), Params);
+	if (!InfoPanel) return;
+
+	USceneComponent* Root = NewObject<USceneComponent>(InfoPanel, TEXT("InfoRoot"));
+	Root->RegisterComponent();
+	InfoPanel->SetRootComponent(Root);
+
+	auto MakeText = [&](const TCHAR* Name, FVector RelLoc, FVector2D DrawSize, float WorldScale) -> UWidgetComponent*
+	{
+		UWidgetComponent* WC = NewObject<UWidgetComponent>(InfoPanel, Name);
+		WC->SetupAttachment(Root);
+		WC->SetRelativeLocation(RelLoc);
+		WC->SetRelativeRotation(FRotator(0.0f, 180.0f, 0.0f)); // 플레이어(-X) 쪽을 향함
+		WC->SetWidgetSpace(EWidgetSpace::World);
+		WC->SetDrawSize(DrawSize);
+		WC->SetWidgetClass(UVRLabelWidget::StaticClass());
+		WC->SetWorldScale3D(FVector(WorldScale));
+		WC->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		WC->RegisterComponent();
+		WC->InitWidget();
+		return WC;
+	};
+
+	InfoTitleWidget = MakeText(TEXT("InfoTitle"), FVector(0.0f, 0.0f, 20.0f), FVector2D(1300.0f, 130.0f), 0.05f);
+	InfoBodyWidget  = MakeText(TEXT("InfoBody"),  FVector(0.0f, 0.0f, -14.0f), FVector2D(1500.0f, 760.0f), 0.045f);
+
+	if (InfoTitleWidget)
+	{
+		if (UVRLabelWidget* L = Cast<UVRLabelWidget>(InfoTitleWidget->GetUserWidgetObject()))
+		{
+			L->SetLabelColor(FLinearColor(0.95f, 0.85f, 0.4f));
+			L->SetLabelFontSize(46.0f);
+			L->SetLabelText(FText::FromString(Title));
+		}
+	}
+	if (InfoBodyWidget)
+	{
+		if (UVRLabelWidget* L = Cast<UVRLabelWidget>(InfoBodyWidget->GetUserWidgetObject()))
+		{
+			L->SetLabelColor(FLinearColor::White);
+			L->SetLabelFontSize(30.0f);
+			L->SetLabelText(FText::FromString(Body));
+		}
+	}
+}
+
+void AExperimentManager::DespawnExperimentInfo()
+{
+	if (InfoPanel) { InfoPanel->Destroy(); InfoPanel = nullptr; }
+	InfoTitleWidget = nullptr;
+	InfoBodyWidget  = nullptr;
+}
+
 // --- Per-experiment tick -----------------------------------------------------------------------------------------
 
 void AExperimentManager::TickRHI(float /*DeltaTime*/)
@@ -520,7 +645,7 @@ void AExperimentManager::TickRHI(float /*DeltaTime*/)
 	const float   Hz     = 1.0f;
 	const float   Off    = FMath::Sin(ExperimentTime * Hz * 2.0f * PI) * Ampl;
 	const float   Scale  = ComputeFitScale(BrushMesh, kBrushFitBox);
-	const FVector ToTip  = WorkingPartWorldOffset(BrushMesh, Scale, kBrushRot, /*bPositiveEnd*/ true);
+	const FVector ToTip  = WorkingPartWorldOffset(BrushMesh, Scale, kBrushRot, /*bPositiveEnd*/ kBrushBristleAtPositiveEnd);
 	const FVector TipTarget = Center + FVector(Off, 0.0f, 1.0f); // bristle tip sweeps across, 1 cm above the hand
 	RHIBrush->SetActorLocation(TipTarget - ToTip);
 
@@ -592,7 +717,7 @@ void AExperimentManager::TickThreat(float /*DeltaTime*/)
 	// Convert "head at target" into actor origin: actorLoc = headTarget - worldOffset(origin -> head), with the
 	// offset recomputed against the LIVE rotation each frame so the HEAD (not the handle/origin) lands on the hand.
 	const float   Scale   = ComputeFitScale(TargetMesh, kHammerFitBox);
-	const FVector ToHead  = WorkingPartWorldOffset(TargetMesh, Scale, Rot, /*bPositiveEnd*/ true);
+	const FVector ToHead  = WorkingPartWorldOffset(TargetMesh, Scale, Rot, /*bPositiveEnd*/ kHammerHeadAtPositiveEnd);
 	const FVector HeadTgt = HandLoc + FVector(0.0f, 0.0f, HeightCm);
 	ThreatHammer->SetActorLocation(HeadTgt - ToHead);
 	ThreatHammer->SetActorRotation(Rot);
@@ -640,4 +765,6 @@ void AExperimentManager::DespawnProps()
 	Kill(VCTarget);
 	Kill(DriftGhost);
 	Kill(ThreatHammer);
+	// 실험 설명 패널도 함께 제거 — 모든 상태 전환에서 DespawnProps가 호출되므로 패널 누수가 없다.
+	DespawnExperimentInfo();
 }
