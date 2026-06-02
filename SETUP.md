@@ -109,11 +109,11 @@ Quest Link + SteamVR/Oculus 런타임 켠 상태에서 에디터 **Play (VR Prev
 
 | 자리       | 추천 소스                                                            |
 |------------|-----------------------------------------------------------------------|
-| 방         | `assets/vr-new-study-room/source/*.fbx`                              |
-| 책상       | `assets/elepheant_dining_table.fbx` (또는 직접 모델링)                |
+| 방         | `assets/room/source/*.fbx`                                          |
+| 책상       | `assets/table/elepheant_dining_table.fbx` (또는 직접 모델링)          |
 | 의자       | `assets/chair/source/*.fbx`                                          |
-| 가짜 손    | `assets/oculust-quest-hand-tracking-realistic-texture/source/*.fbx`  |
-| 가상 붓    | `assets/cc0-paint-brush-3/source/*.fbx`                              |
+| 가짜 손    | `assets/hand/source/GenericGauntlet_Low.obj` (원본 재다운로드 필요)   |
+| 가상 붓    | `assets/brush/source/*.fbx`                                         |
 
 임포트 절차:
 1. 에디터 `Content Browser` → 새 폴더 `/Game/Imported` 생성

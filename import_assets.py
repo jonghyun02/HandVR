@@ -5,11 +5,11 @@ import unreal
 PROJECT_ROOT = r"C:\projects\VR\HandVR"
 
 ASSETS = [
-    (r"assets\vr-new-study-room\source\Brand new Study Room.fbx", "/Game/Imported/Environment", "SM_StudyRoom"),
-    (r"assets\elepheant_dining_table.fbx", "/Game/Imported/Furniture", "SM_DiningTable"),
-    (r"assets\cc0-paint-brush-3\source\PaintBrush3.fbx", "/Game/Imported/Props", "SM_PaintBrush"),
-    (r"assets\claw-hammer-low-poly\source\Claw Hammer\Claw hammer.fbx", "/Game/Imported/Props", "SM_ClawHammer"),
-    (r"assets\generic-leather-glove-hand\source\GenericGauntlet_Low.obj", "/Game/Imported/Props", "SM_GauntletHand"),
+    (r"assets\room\source\Brand new Study Room.fbx", "/Game/Imported/Environment", "SM_StudyRoom"),
+    (r"assets\table\elepheant_dining_table.fbx", "/Game/Imported/Furniture", "SM_DiningTable"),
+    (r"assets\brush\source\PaintBrush3.fbx", "/Game/Imported/Props", "SM_PaintBrush"),
+    (r"assets\hammer\source\Claw Hammer\Claw hammer.fbx", "/Game/Imported/Props", "SM_ClawHammer"),
+    (r"assets\hand\source\GenericGauntlet_Low.obj", "/Game/Imported/Props", "SM_GauntletHand"),  # 원본 재다운로드 필요 (gauntlet source folder absent)
 ]
 
 

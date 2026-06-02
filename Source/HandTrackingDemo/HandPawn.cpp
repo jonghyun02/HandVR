@@ -29,19 +29,9 @@ AHandPawn::AHandPawn()
 	VRCamera->SetupAttachment(SceneRoot);
 	VRCamera->bLockToHmd = true;
 
-	LaunchMarker = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("LaunchMarker"));
-	LaunchMarker->SetupAttachment(VRCamera);
-	static ConstructorHelpers::FObjectFinder<UStaticMesh> CubeAsset(TEXT("/Engine/BasicShapes/Cube.Cube"));
-	if (CubeAsset.Succeeded()) LaunchMarker->SetStaticMesh(CubeAsset.Object);
-	LaunchMarker->SetRelativeLocation(FVector(140.0f, 0.0f, -10.0f));
-	LaunchMarker->SetRelativeScale3D(FVector(0.04f, 0.85f, 0.45f));
-	LaunchMarker->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-
-	LaunchLight = CreateDefaultSubobject<UPointLightComponent>(TEXT("LaunchLight"));
-	LaunchLight->SetupAttachment(VRCamera);
-	LaunchLight->SetRelativeLocation(FVector(80.0f, 0.0f, 20.0f));
-	LaunchLight->SetIntensity(8000.0f);
-	LaunchLight->SetAttenuationRadius(350.0f);
+	// (Removed LaunchMarker + LaunchLight: a leftover head-locked cube panel 140 cm in front of the camera
+	//  — the mysterious "screen floating in front" — plus a head-locked 8000cd point light that created a
+	//  moving hotspot / blow-out. Neither belongs in the seated experiment; scene lighting lives in WorldSetup.)
 
 	auto BuildHand = [this](
 		const TCHAR* MCName, const TCHAR* TriggerName, const TCHAR* OffsetName, const TCHAR* HandName,

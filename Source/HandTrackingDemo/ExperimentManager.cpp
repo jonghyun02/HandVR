@@ -3,14 +3,22 @@
 #include "HandPawn.h"
 #include "VRButton.h"
 #include "SurveyManager.h"
+#include "VRLabelWidget.h"
 
 #include "Components/StaticMeshComponent.h"
+#include "Components/WidgetComponent.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/StaticMeshActor.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
+#include "HAL/FileManager.h"
 #include "Kismet/GameplayStatics.h"
 #include "Kismet/KismetSystemLibrary.h"
+#include "Sound/SoundBase.h"
+#include "Materials/MaterialInterface.h"
+#include "Materials/MaterialInstanceDynamic.h"
+#include "Misc/FileHelper.h"
+#include "Misc/Paths.h"
 #include "UObject/ConstructorHelpers.h"
 
 // Button IDs
@@ -20,9 +28,55 @@ namespace
 	constexpr int32 BID_RHI    = 2;
 	constexpr int32 BID_VC     = 3;
 	constexpr int32 BID_Drift  = 4;
-	constexpr int32 BID_Survey = 5;
-	constexpr int32 BID_Exit   = 6;
-	constexpr int32 BID_Stop   = 7;
+	constexpr int32 BID_Survey  = 5;
+	constexpr int32 BID_Exit    = 6;
+	constexpr int32 BID_Stop    = 7;
+	constexpr int32 BID_Threat  = 8;
+	constexpr int32 BID_Results = 9;
+	constexpr int32 BID_Close   = 10;
+
+	// Uniform fit-scale applied to an imported mesh so its LONGEST world dimension matches TargetBoxCm's largest
+	// component (shape preserved). Pure function of mesh bounds + target, so spawn and tick agree on the scale.
+	float ComputeFitScale(UStaticMesh* MeshOrNull, FVector TargetBoxCm)
+	{
+		if (!MeshOrNull) return 1.0f;
+		const FVector Full = MeshOrNull->GetBounds().BoxExtent * 2.0f;
+		const float Longest = FMath::Max3(Full.X, Full.Y, Full.Z);
+		const float Target  = FMath::Max3(TargetBoxCm.X, TargetBoxCm.Y, TargetBoxCm.Z);
+		return Longest > KINDA_SMALL_NUMBER ? Target / Longest : 1.0f;
+	}
+
+	// WORLD-space offset from the actor origin to the working part of MeshOrNull, given the uniform fit Scale and
+	// the actor Rot. Working part = the +end (bPositiveEnd) or -end of the mesh's LONGEST local axis:
+	// localOffset = Origin ± Extent along that axis. Caller does actorLoc = handLoc - thisOffset to land it.
+	FVector WorkingPartWorldOffset(UStaticMesh* MeshOrNull, float Scale, const FRotator& Rot, bool bPositiveEnd)
+	{
+		if (!MeshOrNull) return FVector::ZeroVector;
+
+		const FBoxSphereBounds B = MeshOrNull->GetBounds();
+		const FVector Origin = B.Origin;
+		const FVector Extent = B.BoxExtent;
+		const float Sign = bPositiveEnd ? 1.0f : -1.0f;
+
+		// Identify the longest local axis and build the end point along it (other axes stay at the bounds centre).
+		FVector LocalEnd = Origin;
+		if (Extent.X >= Extent.Y && Extent.X >= Extent.Z)      LocalEnd.X = Origin.X + Sign * Extent.X;
+		else if (Extent.Y >= Extent.X && Extent.Y >= Extent.Z) LocalEnd.Y = Origin.Y + Sign * Extent.Y;
+		else                                                    LocalEnd.Z = Origin.Z + Sign * Extent.Z;
+
+		return Rot.RotateVector(LocalEnd * Scale);
+	}
+
+	// Fit boxes (cm) used both at spawn and in tick so the working-part offset stays consistent.
+	const FVector kBrushFitBox(30.0f, 30.0f, 30.0f);
+	const FVector kHammerFitBox(33.0f, 33.0f, 33.0f);
+	const FRotator kBrushRot(0.0f, 0.0f, 90.0f);  // long axis swept roughly horizontal across the hand
+	// Threat-hammer rest orientation (user-tuned): yaw 90 = rotated 90° counter-clockwise (top-down) from the
+	// old 180; roll 90 = rotated 90° about the handle's long axis so the FLAT STRIKING FACE lands on the hand.
+	// If the face points the wrong way in-headset flip kHammerStrikeRoll's sign (±90); if the heading is off
+	// adjust kHammerBaseYaw by ±90.
+	const float kHammerBaseYaw    = 90.0f;
+	const float kHammerStrikeRoll = 90.0f;
 }
 
 AExperimentManager::AExperimentManager()
@@ -43,16 +97,36 @@ void AExperimentManager::BeginPlay()
 {
 	Super::BeginPlay();
 
-	// Spawn the seven UI buttons once. Hidden/shown by state transitions.
-	BtnStart  = SpawnButton(BID_Start,  TEXT("시작"),                StartButtonLoc,                                  FLinearColor(0.2f, 0.8f, 0.3f));
-	BtnRHI    = SpawnButton(BID_RHI,    TEXT("실험1\n고무손 착각"),     ButtonRowBaseLoc + FVector(0.0f, -36.0f, 0.0f), FLinearColor(0.3f, 0.5f, 0.9f));
-	BtnVC     = SpawnButton(BID_VC,     TEXT("실험2\n시각적 포착"),     ButtonRowBaseLoc + FVector(0.0f, -18.0f, 0.0f), FLinearColor(0.3f, 0.5f, 0.9f));
-	BtnDrift  = SpawnButton(BID_Drift,  TEXT("실험3\n고유수용감각 표류"), ButtonRowBaseLoc + FVector(0.0f,   0.0f, 0.0f), FLinearColor(0.3f, 0.5f, 0.9f));
-	BtnSurvey = SpawnButton(BID_Survey, TEXT("설문"),                ButtonRowBaseLoc + FVector(0.0f, +18.0f, 0.0f), FLinearColor(0.8f, 0.7f, 0.2f));
-	BtnExit   = SpawnButton(BID_Exit,   TEXT("종료"),                ButtonRowBaseLoc + FVector(0.0f, +36.0f, 0.0f), FLinearColor(0.7f, 0.3f, 0.3f));
-	BtnStop   = SpawnButton(BID_Stop,   TEXT("중단"),                StopButtonLoc,                                   FLinearColor(0.9f, 0.2f, 0.2f));
+	// 메뉴 버튼은 4열 × 2행 그리드로 배치한다. 라벨 평면 폭이 약 20 cm (400px × 0.05) 이므로
+	// 열 간격을 32 cm 로 잡으면 인접 라벨 사이 여백이 12 cm 이상 확보돼 한글이 절대 겹치지 않는다.
+	// 행 간격은 30 cm (±15) — 라벨 높이 약 10 cm 대비 충분. 모두 x≈52, z≈90~120 cm 로 착석 손 닿는 범위.
+	// Wider column pitch (40 cm: ±60 / ±20) and SHORT single-concept labels so the Korean never collides with
+	// the neighbour (the long multi-line labels were overlapping). Rows 36 cm apart (±18).
+	const float ColX[4] = { -60.0f, -20.0f, +20.0f, +60.0f }; // 열별 Y 오프셋(좌→우)
+	const float RowTopZ    = +18.0f; // 윗줄
+	const float RowBottomZ = -18.0f; // 아랫줄
+	auto Cell = [&](int32 Col, float RowZ) { return ButtonRowBaseLoc + FVector(0.0f, ColX[Col], RowZ); };
+
+	const FLinearColor ExpColor(0.3f, 0.5f, 0.9f);
+
+	// Spawn the nine UI buttons once. Hidden/shown by state transitions. Short labels avoid overlap.
+	BtnStart   = SpawnButton(BID_Start,   TEXT("시작"),         StartButtonLoc,      FLinearColor(0.2f, 0.8f, 0.3f));
+	// 윗줄: 실험 1~4 (짧은 라벨)
+	BtnRHI     = SpawnButton(BID_RHI,     TEXT("실험1\n고무손"),  Cell(0, RowTopZ),    ExpColor);
+	BtnVC      = SpawnButton(BID_VC,      TEXT("실험2\n시각포착"), Cell(1, RowTopZ),    ExpColor);
+	BtnDrift   = SpawnButton(BID_Drift,   TEXT("실험3\n표류"),    Cell(2, RowTopZ),    ExpColor);
+	BtnThreat  = SpawnButton(BID_Threat,  TEXT("실험4\n망치"),    Cell(3, RowTopZ),    FLinearColor(0.6f, 0.35f, 0.85f));
+	// 아랫줄: 설문 / 결과 / 종료
+	BtnSurvey  = SpawnButton(BID_Survey,  TEXT("설문"),         Cell(0, RowBottomZ), FLinearColor(0.8f, 0.7f, 0.2f));
+	BtnResults = SpawnButton(BID_Results, TEXT("결과"),         Cell(1, RowBottomZ), FLinearColor(0.2f, 0.7f, 0.7f));
+	BtnExit    = SpawnButton(BID_Exit,    TEXT("종료"),         Cell(2, RowBottomZ), FLinearColor(0.7f, 0.3f, 0.3f));
+	// 실험 중단 / 결과 패널 닫기
+	BtnStop    = SpawnButton(BID_Stop,    TEXT("중단"),                  StopButtonLoc,            FLinearColor(0.9f, 0.2f, 0.2f));
+	BtnClose   = SpawnButton(BID_Close,   TEXT("닫기"),                  StopButtonLoc,            FLinearColor(0.9f, 0.5f, 0.2f));
 
 	EnterStart();
+
+	UE_LOG(LogTemp, Display, TEXT("[HandVR] ExperimentManager ready: 9 buttons spawned, state=Start"));
 }
 
 AHTDButton* AExperimentManager::SpawnButton(int32 ButtonId, const FString& Label, FVector Loc, FLinearColor Tint)
@@ -85,23 +159,27 @@ void AExperimentManager::Tick(float DeltaTime)
 	ExperimentTime += DeltaTime;
 	switch (CurrentType)
 	{
-		case EExperimentType::RHI:   TickRHI(DeltaTime);   break;
-		case EExperimentType::Drift: TickDrift(DeltaTime); break;
+		case EExperimentType::RHI:    TickRHI(DeltaTime);    break;
+		case EExperimentType::Drift:  TickDrift(DeltaTime);  break;
+		case EExperimentType::Threat: TickThreat(DeltaTime); break;
 		default: break;
 	}
 }
 
 // --- State transitions -------------------------------------------------------------------------------------------
 
-void AExperimentManager::SetButtonsVisible(bool bStart, bool bMenu, bool bStop)
+void AExperimentManager::SetButtonsVisible(bool bStart, bool bMenu, bool bStop, bool bClose)
 {
-	if (BtnStart)  BtnStart->SetEnabledState(bStart);
-	if (BtnRHI)    BtnRHI->SetEnabledState(bMenu);
-	if (BtnVC)     BtnVC->SetEnabledState(bMenu);
-	if (BtnDrift)  BtnDrift->SetEnabledState(bMenu);
-	if (BtnSurvey) BtnSurvey->SetEnabledState(bMenu);
-	if (BtnExit)   BtnExit->SetEnabledState(bMenu);
-	if (BtnStop)   BtnStop->SetEnabledState(bStop);
+	if (BtnStart)   BtnStart->SetEnabledState(bStart);
+	if (BtnRHI)     BtnRHI->SetEnabledState(bMenu);
+	if (BtnVC)      BtnVC->SetEnabledState(bMenu);
+	if (BtnDrift)   BtnDrift->SetEnabledState(bMenu);
+	if (BtnThreat)  BtnThreat->SetEnabledState(bMenu);
+	if (BtnSurvey)  BtnSurvey->SetEnabledState(bMenu);
+	if (BtnResults) BtnResults->SetEnabledState(bMenu);
+	if (BtnExit)    BtnExit->SetEnabledState(bMenu);
+	if (BtnStop)    BtnStop->SetEnabledState(bStop);
+	if (BtnClose)   BtnClose->SetEnabledState(bClose);
 }
 
 void AExperimentManager::EnterStart()
@@ -109,8 +187,9 @@ void AExperimentManager::EnterStart()
 	State       = EExperimentState::Start;
 	CurrentType = EExperimentType::None;
 	DespawnProps();
+	DespawnResultsPanel();
 	if (AHandPawn* P = GetHandPawn()) { P->ResetVisualOffsets(); P->SetHandsVisible(true); }
-	SetButtonsVisible(/*start*/ true, /*menu*/ false, /*stop*/ false);
+	SetButtonsVisible(/*start*/ true, /*menu*/ false, /*stop*/ false, /*close*/ false);
 }
 
 void AExperimentManager::EnterMainMenu()
@@ -118,8 +197,9 @@ void AExperimentManager::EnterMainMenu()
 	State       = EExperimentState::MainMenu;
 	CurrentType = EExperimentType::None;
 	DespawnProps();
+	DespawnResultsPanel();
 	if (AHandPawn* P = GetHandPawn()) { P->ResetVisualOffsets(); P->SetHandsVisible(true); }
-	SetButtonsVisible(false, true, false);
+	SetButtonsVisible(false, true, false, false);
 }
 
 void AExperimentManager::EnterExperiment(EExperimentType Type)
@@ -128,7 +208,7 @@ void AExperimentManager::EnterExperiment(EExperimentType Type)
 	CurrentType    = Type;
 	ExperimentTime = 0.0f;
 	DespawnProps();
-	SetButtonsVisible(false, false, true);
+	SetButtonsVisible(false, false, true, false);
 
 	AHandPawn* P = GetHandPawn();
 	UWorld*    W = GetWorld();
@@ -142,7 +222,11 @@ void AExperimentManager::EnterExperiment(EExperimentType Type)
 	FActorSpawnParameters Params;
 	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 
-	auto MakeMesh = [&](FName Name, UStaticMesh* MeshOrNull, FVector Loc, FRotator Rot, FVector ScaleCm, FLinearColor /*Tint*/) -> AStaticMeshActor*
+	// TargetBoxCm = desired world bounding box in cm. Imported meshes are uniform-fitted to the largest
+	// target dimension (shape preserved); the engine-cube fallback is fitted per-axis (cube is 100³).
+	// This reads each mesh's actual bounds, so props render at real-world size regardless of FBX import units.
+	// Tint is wired to a dynamic BasicShapeMaterial "Color" so props never render as the default grey checker.
+	auto MakeMesh = [&](FName Name, UStaticMesh* MeshOrNull, FVector Loc, FRotator Rot, FVector TargetBoxCm, FLinearColor Tint) -> AStaticMeshActor*
 	{
 		AStaticMeshActor* A = W->SpawnActor<AStaticMeshActor>(AStaticMeshActor::StaticClass(), FTransform(Rot, Loc), Params);
 		if (!A) return nullptr;
@@ -153,7 +237,6 @@ void AExperimentManager::EnterExperiment(EExperimentType Type)
 		A->SetMobility(EComponentMobility::Movable);
 		if (UStaticMeshComponent* SMC = A->GetStaticMeshComponent())
 		{
-			// Fallback to engine basic cube if no FBX assigned. Cube is 100×100×100 → scale = size_cm / 100.
 			UStaticMesh* Mesh = MeshOrNull;
 			if (!Mesh)
 			{
@@ -161,8 +244,36 @@ void AExperimentManager::EnterExperiment(EExperimentType Type)
 				Mesh = CubeFallback;
 			}
 			SMC->SetStaticMesh(Mesh);
-			SMC->SetWorldScale3D(ScaleCm / 100.0f);
+
+			const FVector Full = Mesh ? Mesh->GetBounds().BoxExtent * 2.0f : FVector(100.0f);
+			FVector Scale = FVector::OneVector;
+			if (MeshOrNull)
+			{
+				Scale = FVector(ComputeFitScale(MeshOrNull, TargetBoxCm));
+			}
+			else
+			{
+				Scale = FVector(
+					Full.X > KINDA_SMALL_NUMBER ? TargetBoxCm.X / Full.X : 1.0f,
+					Full.Y > KINDA_SMALL_NUMBER ? TargetBoxCm.Y / Full.Y : 1.0f,
+					Full.Z > KINDA_SMALL_NUMBER ? TargetBoxCm.Z / Full.Z : 1.0f);
+			}
+			SMC->SetWorldScale3D(Scale);
 			SMC->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+
+			// ONLY tint the cube fallback (null mesh) — imported meshes (brush/hammer) keep their own imported
+			// material+textures (e.g. SM_PaintBrush -> PaintBrush3). Overriding slot 0 here would hide that texture.
+			if (!MeshOrNull)
+			{
+				static UMaterialInterface* BaseMat = LoadObject<UMaterialInterface>(nullptr, TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial"));
+				if (BaseMat)
+				{
+					if (UMaterialInstanceDynamic* MID = SMC->CreateDynamicMaterialInstance(0, BaseMat))
+					{
+						MID->SetVectorParameterValue(TEXT("Color"), Tint);
+					}
+				}
+			}
 		}
 		return A;
 	};
@@ -171,24 +282,28 @@ void AExperimentManager::EnterExperiment(EExperimentType Type)
 	{
 		case EExperimentType::RHI:
 		{
-			// Hide the real-tracked virtual hands — only the static fake hand is visible.
-			P->SetHandsVisible(false);
-
-			// Static fake "rubber hand" on desk center, palm-up. Cube placeholder ~ 20 (long) × 9 (wide) × 3 (thick) cm.
-			RHIFakeHand = MakeMesh(TEXT("RHI_FakeHand"),
-				FakeHandMesh,
-				DeskTopCtr + FVector(0.0f, 0.0f, 1.5f),
-				FRotator(0.0f, 90.0f, 0.0f),
-				FakeHandMesh ? FVector(12.0f, 12.0f, 12.0f) : FVector(20.0f, 9.0f, 3.0f),
-				FLinearColor(0.95f, 0.85f, 0.75f));
-
-			// Virtual brush — small cylinder-shaped object via cube fallback. We tick its position to stroke.
+			// Stroke the user's OWN tracked hand (the one they see) with a brush — no separate fake hand.
+			// Keep the tracked hands visible; TickRHI moves the brush 1 Hz back-and-forth over the right hand.
+			P->SetHandsVisible(true);
 			RHIBrush = MakeMesh(TEXT("RHI_Brush"),
 				BrushMesh,
-				DeskTopCtr + FVector(0.0f, 0.0f, 8.0f),
-				FRotator(0.0f, 0.0f, 90.0f),
-				BrushMesh ? FVector(8.0f, 8.0f, 8.0f) : FVector(2.0f, 18.0f, 2.0f),
-				FLinearColor(0.6f, 0.4f, 0.2f));
+				P->GetVisualWristLocation(/*right*/ true), // refined immediately below so the BRISTLE TIP is at the hand
+				kBrushRot,
+				BrushMesh ? kBrushFitBox : FVector(2.0f, 18.0f, 2.0f),
+				FLinearColor(0.9f, 0.88f, 0.82f)); // cream brush handle
+			UE_LOG(LogTemp, Display, TEXT("[HandVR] RHI spawn: BrushMesh %s (fitScale=%.3f)"),
+				BrushMesh ? TEXT("LOADED") : TEXT("NULL -> cube fallback"), ComputeFitScale(BrushMesh, kBrushFitBox));
+			if (RHIBrush)
+			{
+				// Place so the bristle tip (+end of the longest local axis) sits ~1 cm above the hand surface.
+				const FVector HandLoc = P->GetVisualWristLocation(/*right*/ true);
+				const float   Scale   = ComputeFitScale(BrushMesh, kBrushFitBox);
+				const FVector ToTip   = WorkingPartWorldOffset(BrushMesh, Scale, kBrushRot, /*bPositiveEnd*/ true);
+				RHIBrush->SetActorLocation(HandLoc + FVector(0.0f, 0.0f, 1.0f) - ToTip);
+			}
+			// Brush-stroke SFX (runtime load; quiet null if missing). PrevBrushOff reset so the first sweep fires.
+			if (!BrushSound) BrushSound = LoadObject<USoundBase>(nullptr, TEXT("/Game/Imported/Audio/brush.brush"));
+			PrevBrushOff = 0.0f;
 			break;
 		}
 
@@ -202,7 +317,7 @@ void AExperimentManager::EnterExperiment(EExperimentType Type)
 				TargetMesh,
 				DeskTopCtr + FVector(0.0f, 0.0f, 5.0f),
 				FRotator(0.0f, 90.0f, 0.0f),
-				TargetMesh ? FVector(8.0f, 8.0f, 8.0f) : FVector(6.0f, 6.0f, 6.0f),
+				TargetMesh ? FVector(30.0f, 30.0f, 30.0f) : FVector(6.0f, 6.0f, 6.0f),
 				FLinearColor(1.0f, 0.3f, 0.3f));
 			break;
 		}
@@ -221,6 +336,25 @@ void AExperimentManager::EnterExperiment(EExperimentType Type)
 			break;
 		}
 
+		case EExperimentType::Threat:
+		{
+			// Threaten the user's OWN tracked hand with the hammer — no separate fake hand. Keep hands visible;
+			// TickThreat animates the hammer head lift->strike->impact->return onto the right tracked hand.
+			P->SetHandsVisible(true);
+			ThreatHammer = MakeMesh(TEXT("Threat_Hammer"),
+				TargetMesh,
+				P->GetVisualWristLocation(/*right*/ true), // positioned every tick in TickThreat so the HEAD lands on the hand
+				FRotator(0.0f, kHammerBaseYaw, kHammerStrikeRoll),
+				TargetMesh ? kHammerFitBox : FVector(4.0f, 4.0f, 30.0f),
+				FLinearColor(0.25f, 0.25f, 0.27f)); // dark grey hammer
+			UE_LOG(LogTemp, Display, TEXT("[HandVR] Threat spawn: TargetMesh %s (fitScale=%.3f)"),
+				TargetMesh ? TEXT("LOADED") : TEXT("NULL -> cube fallback"), ComputeFitScale(TargetMesh, kHammerFitBox));
+			// Hammer impact SFX (runtime load; quiet null if missing). PrevThreatT reset so the first hit fires.
+			if (!HammerSound) HammerSound = LoadObject<USoundBase>(nullptr, TEXT("/Game/Imported/Audio/hammer.hammer"));
+			PrevThreatT = 0.0f;
+			break;
+		}
+
 		default: break;
 	}
 }
@@ -229,8 +363,9 @@ void AExperimentManager::EnterSurvey()
 {
 	State = EExperimentState::Survey;
 	DespawnProps();
+	DespawnResultsPanel();
 	if (AHandPawn* P = GetHandPawn()) { P->ResetVisualOffsets(); P->SetHandsVisible(true); }
-	SetButtonsVisible(false, false, false);
+	SetButtonsVisible(false, false, false, false);
 
 	UWorld* W = GetWorld();
 	if (!W) return;
@@ -245,18 +380,157 @@ void AExperimentManager::EnterSurvey()
 	}
 }
 
+// --- 결과 보기 ----------------------------------------------------------------------------------------------------
+
+void AExperimentManager::EnterResults()
+{
+	State       = EExperimentState::Results;
+	CurrentType = EExperimentType::None;
+	DespawnProps();
+	if (AHandPawn* P = GetHandPawn()) { P->ResetVisualOffsets(); P->SetHandsVisible(true); }
+	// 메뉴 버튼은 숨기고, 닫기 버튼만 보이게.
+	SetButtonsVisible(false, false, false, true);
+	ShowResultsPanel();
+}
+
+FString AExperimentManager::FindLatestSurveyCsv() const
+{
+	const FString Dir = FPaths::ProjectSavedDir();
+	TArray<FString> Files;
+	IFileManager::Get().FindFiles(Files, *(Dir / TEXT("SurveyResults_*.csv")), /*Files*/ true, /*Directories*/ false);
+	if (Files.Num() == 0) return FString();
+
+	// 파일명에 YYYYMMDD_HHMMSS 타임스탬프가 들어있어 이름 정렬 = 시간 정렬. 마지막이 최신.
+	Files.Sort();
+	return Dir / Files.Last();
+}
+
+void AExperimentManager::ShowResultsPanel()
+{
+	DespawnResultsPanel();
+
+	UWorld* W = GetWorld();
+	if (!W) return;
+
+	// 패널 본체를 사용자 앞 가슴 높이에 띄운다 (메뉴 그리드와 같은 x, 약간 위).
+	FActorSpawnParameters Params;
+	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	const FVector PanelLoc = ButtonRowBaseLoc + FVector(0.0f, 0.0f, 22.0f);
+	ResultsPanel = W->SpawnActor<AActor>(AActor::StaticClass(), FTransform(PanelLoc), Params);
+	if (!ResultsPanel) return;
+
+	USceneComponent* Root = NewObject<USceneComponent>(ResultsPanel, TEXT("ResultsRoot"));
+	Root->RegisterComponent();
+	ResultsPanel->SetRootComponent(Root);
+
+	// SurveyManager 와 동일한 월드 텍스트 위젯 구성 패턴.
+	auto MakeText = [&](const TCHAR* Name, FVector RelLoc, FVector2D DrawSize, float WorldScale) -> UWidgetComponent*
+	{
+		UWidgetComponent* WC = NewObject<UWidgetComponent>(ResultsPanel, Name);
+		WC->SetupAttachment(Root);
+		WC->SetRelativeLocation(RelLoc);
+		WC->SetRelativeRotation(FRotator(0.0f, 180.0f, 0.0f)); // 플레이어(-X) 쪽을 향함
+		WC->SetWidgetSpace(EWidgetSpace::World);
+		WC->SetDrawSize(DrawSize);
+		WC->SetWidgetClass(UVRLabelWidget::StaticClass());
+		WC->SetWorldScale3D(FVector(WorldScale));
+		WC->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		WC->RegisterComponent();
+		WC->InitWidget(); // UUserWidget 인스턴스를 즉시 생성 → 바로 아래서 GetUserWidgetObject() 사용 가능.
+		return WC;
+	};
+
+	ResultsTitleWidget = MakeText(TEXT("ResultsTitle"), FVector(0.0f, 0.0f, 30.0f), FVector2D(1400.0f, 120.0f),  0.06f);
+	ResultsBodyWidget  = MakeText(TEXT("ResultsBody"),  FVector(0.0f, 0.0f, -8.0f), FVector2D(1600.0f, 900.0f), 0.05f);
+
+	if (ResultsTitleWidget)
+	{
+		if (UVRLabelWidget* L = Cast<UVRLabelWidget>(ResultsTitleWidget->GetUserWidgetObject()))
+		{
+			L->SetLabelColor(FLinearColor(0.3f, 0.9f, 0.9f));
+			L->SetLabelFontSize(52.0f);
+			L->SetLabelText(FText::FromString(TEXT("설문 결과")));
+		}
+	}
+
+	// 최신 CSV 파싱: 헤더(9개 측정항목) + 마지막 데이터 행 → "항목: 점수" 한 줄씩.
+	FString Body;
+	const FString CsvPath = FindLatestSurveyCsv();
+	if (CsvPath.IsEmpty())
+	{
+		Body = TEXT("저장된 결과 없음");
+	}
+	else
+	{
+		TArray<FString> Lines;
+		FFileHelper::LoadFileToStringArray(Lines, *CsvPath);
+		if (Lines.Num() < 2)
+		{
+			Body = TEXT("저장된 결과 없음");
+		}
+		else
+		{
+			TArray<FString> Headers;
+			Lines[0].ParseIntoArray(Headers, TEXT(","), /*CullEmpty*/ false);
+			TArray<FString> Scores;
+			Lines.Last().ParseIntoArray(Scores, TEXT(","), /*CullEmpty*/ false);
+
+			TArray<FString> BodyLines;
+			const int32 Count = FMath::Min(Headers.Num(), Scores.Num());
+			for (int32 i = 0; i < Count; ++i)
+			{
+				BodyLines.Add(FString::Printf(TEXT("%s: %s"), *Headers[i].TrimStartAndEnd(), *Scores[i].TrimStartAndEnd()));
+			}
+			Body = BodyLines.Num() > 0 ? FString::Join(BodyLines, TEXT("\n")) : TEXT("저장된 결과 없음");
+		}
+	}
+
+	if (ResultsBodyWidget)
+	{
+		if (UVRLabelWidget* L = Cast<UVRLabelWidget>(ResultsBodyWidget->GetUserWidgetObject()))
+		{
+			L->SetLabelColor(FLinearColor::White);
+			L->SetLabelFontSize(34.0f);
+			L->SetLabelText(FText::FromString(Body));
+		}
+	}
+}
+
+void AExperimentManager::DespawnResultsPanel()
+{
+	if (ResultsPanel) { ResultsPanel->Destroy(); ResultsPanel = nullptr; }
+	ResultsTitleWidget = nullptr;
+	ResultsBodyWidget  = nullptr;
+}
+
 // --- Per-experiment tick -----------------------------------------------------------------------------------------
 
 void AExperimentManager::TickRHI(float /*DeltaTime*/)
 {
-	if (!RHIBrush || !RHIFakeHand) return;
+	if (!RHIBrush) return;
+	AHandPawn* P = GetHandPawn();
+	if (!P) return;
 
-	// Stroke the fake hand from finger-tip to wrist along its long axis (X). 1 Hz back-and-forth.
-	const FVector Center  = RHIFakeHand->GetActorLocation();
-	const float   AmplX   = 8.0f; // cm — stroke length
-	const float   Hz      = 1.0f;
-	const float   X       = Center.X + FMath::Sin(ExperimentTime * Hz * 2.0f * PI) * AmplX;
-	RHIBrush->SetActorLocation(FVector(X, Center.Y, Center.Z + 5.0f));
+	// Sweep the BRISTLE TIP back and forth ON the user's OWN (right) tracked hand, 1 Hz (~±6 cm), rather than
+	// moving the whole brush off in space. Convert "origin at hand" into "bristle tip at hand" via the bounds:
+	// actorLoc = handLoc - worldOffset(origin -> bristle tip). The tip then lands ~1 cm above the hand surface,
+	// and the sweep is added to the hand target (so the TIP, not the origin, traces the stroke).
+	const FVector Center = P->GetVisualWristLocation(/*right*/ true);
+	const float   Ampl   = 6.0f; // cm — stroke length (±6)
+	const float   Hz     = 1.0f;
+	const float   Off    = FMath::Sin(ExperimentTime * Hz * 2.0f * PI) * Ampl;
+	const float   Scale  = ComputeFitScale(BrushMesh, kBrushFitBox);
+	const FVector ToTip  = WorkingPartWorldOffset(BrushMesh, Scale, kBrushRot, /*bPositiveEnd*/ true);
+	const FVector TipTarget = Center + FVector(Off, 0.0f, 1.0f); // bristle tip sweeps across, 1 cm above the hand
+	RHIBrush->SetActorLocation(TipTarget - ToTip);
+
+	// Play the brush-stroke sound once per sweep across the hand (sign flip of Off = passing the hand centre,
+	// the fastest part of the stroke). Edge-detected via PrevBrushOff so it triggers once per pass.
+	if (BrushSound && PrevBrushOff != 0.0f && FMath::Sign(Off) != FMath::Sign(PrevBrushOff))
+	{
+		UGameplayStatics::SpawnSoundAtLocation(GetWorld(), BrushSound, Center);
+	}
+	PrevBrushOff = Off;
 }
 
 void AExperimentManager::TickDrift(float /*DeltaTime*/)
@@ -276,19 +550,78 @@ void AExperimentManager::TickDrift(float /*DeltaTime*/)
 	}
 }
 
+void AExperimentManager::TickThreat(float /*DeltaTime*/)
+{
+	if (!ThreatHammer) return;
+	AHandPawn* P = GetHandPawn();
+	if (!P) return;
+
+	// 4-stage automated threat over the user's OWN (right) tracked hand (report: 들어올림→내려치기→충격→복귀), looping.
+	const FVector HandLoc = P->GetVisualWristLocation(/*right*/ true);
+	const float   Period  = 3.0f;
+	const float   t       = FMath::Fmod(ExperimentTime, Period);
+
+	float    HeightCm; // height of the HAMMER HEAD above the hand surface this frame
+	// Rest orientation: yaw 90 (90° CCW from old 180, top-down) + roll 90 (about the handle axis so the flat
+	// striking face hits the hand). The swing cocks roll back relative to that base, returning to it on impact.
+	FRotator Rot(0.0f, kHammerBaseYaw, kHammerStrikeRoll);
+	if (t < 1.0f)          // 1) LIFT — raise the head above the hand and cock back
+	{
+		const float a = t / 1.0f;
+		HeightCm  = FMath::Lerp(6.0f, 42.0f, a);
+		Rot.Roll  = kHammerStrikeRoll + FMath::Lerp(0.0f, -35.0f, a);
+	}
+	else if (t < 1.4f)     // 2) STRIKE — head accelerates straight DOWN toward the hand
+	{
+		const float a = (t - 1.0f) / 0.4f;
+		HeightCm  = FMath::Lerp(42.0f, 0.0f, a * a); // ease-in (accelerating swing) to head-on-hand
+		Rot.Roll  = kHammerStrikeRoll + FMath::Lerp(-35.0f, 0.0f, a);
+	}
+	else if (t < 1.7f)     // 3) IMPACT — HEAD position == hand position, with a tiny contact shake
+	{
+		HeightCm  = FMath::Abs(FMath::Sin((t - 1.4f) * 60.0f)) * 0.6f; // 0..0.6 cm, stays on the hand
+		Rot.Roll  = kHammerStrikeRoll;
+	}
+	else                   // 4) RETURN — head rises back to the rest pose
+	{
+		const float a = (t - 1.7f) / (Period - 1.7f);
+		HeightCm  = FMath::Lerp(0.0f, 6.0f, a);
+		Rot.Roll  = kHammerStrikeRoll;
+	}
+
+	// Convert "head at target" into actor origin: actorLoc = headTarget - worldOffset(origin -> head), with the
+	// offset recomputed against the LIVE rotation each frame so the HEAD (not the handle/origin) lands on the hand.
+	const float   Scale   = ComputeFitScale(TargetMesh, kHammerFitBox);
+	const FVector ToHead  = WorkingPartWorldOffset(TargetMesh, Scale, Rot, /*bPositiveEnd*/ true);
+	const FVector HeadTgt = HandLoc + FVector(0.0f, 0.0f, HeightCm);
+	ThreatHammer->SetActorLocation(HeadTgt - ToHead);
+	ThreatHammer->SetActorRotation(Rot);
+
+	// Hammer impact SFX: fire exactly ONCE per cycle at the STRIKE->IMPACT crossing (t passes 1.4 = head hits
+	// the hand). Edge-detected via PrevThreatT so it doesn't retrigger every frame during the impact window.
+	if (HammerSound && PrevThreatT < 1.4f && t >= 1.4f)
+	{
+		UGameplayStatics::SpawnSoundAtLocation(GetWorld(), HammerSound, HandLoc);
+	}
+	PrevThreatT = t;
+}
+
 // --- Events ------------------------------------------------------------------------------------------------------
 
 void AExperimentManager::OnButtonPressed(int32 ButtonId)
 {
 	switch (ButtonId)
 	{
-		case BID_Start:  if (State == EExperimentState::Start)       EnterMainMenu();                          break;
-		case BID_RHI:    if (State == EExperimentState::MainMenu)    EnterExperiment(EExperimentType::RHI);    break;
-		case BID_VC:     if (State == EExperimentState::MainMenu)    EnterExperiment(EExperimentType::VisualCapture); break;
-		case BID_Drift:  if (State == EExperimentState::MainMenu)    EnterExperiment(EExperimentType::Drift);  break;
-		case BID_Survey: if (State == EExperimentState::MainMenu)    EnterSurvey();                            break;
-		case BID_Exit:   if (State == EExperimentState::MainMenu)    UKismetSystemLibrary::QuitGame(GetWorld(), nullptr, EQuitPreference::Quit, false); break;
-		case BID_Stop:   if (State == EExperimentState::Experiment)  EnterMainMenu();                          break;
+		case BID_Start:   if (State == EExperimentState::Start)      EnterMainMenu();                          break;
+		case BID_RHI:     if (State == EExperimentState::MainMenu)   EnterExperiment(EExperimentType::RHI);    break;
+		case BID_VC:      if (State == EExperimentState::MainMenu)   EnterExperiment(EExperimentType::VisualCapture); break;
+		case BID_Drift:   if (State == EExperimentState::MainMenu)   EnterExperiment(EExperimentType::Drift);  break;
+		case BID_Threat:  if (State == EExperimentState::MainMenu)   EnterExperiment(EExperimentType::Threat); break;
+		case BID_Survey:  if (State == EExperimentState::MainMenu)   EnterSurvey();                            break;
+		case BID_Results: if (State == EExperimentState::MainMenu)   EnterResults();                           break;
+		case BID_Exit:    if (State == EExperimentState::MainMenu)   UKismetSystemLibrary::QuitGame(GetWorld(), nullptr, EQuitPreference::Quit, false); break;
+		case BID_Stop:    if (State == EExperimentState::Experiment) EnterMainMenu();                          break;
+		case BID_Close:   if (State == EExperimentState::Results)    EnterMainMenu();                          break;
 		default: break;
 	}
 }
@@ -306,4 +639,5 @@ void AExperimentManager::DespawnProps()
 	Kill(RHIBrush);
 	Kill(VCTarget);
 	Kill(DriftGhost);
+	Kill(ThreatHammer);
 }

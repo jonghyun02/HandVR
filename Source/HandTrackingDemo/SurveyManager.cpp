@@ -16,6 +16,7 @@ namespace
 	static const TArray<TPair<FString, FString>>& GetQuestions()
 	{
 		static const TArray<TPair<FString, FString>> Qs = {
+			{ TEXT("신체소유감"),   TEXT("가상 손이 실제 내 손처럼 느껴졌는가?") },
 			{ TEXT("공간일치감"),   TEXT("가상 손의 위치가 실제 내 손의 위치와 비슷하게 느껴졌는가?") },
 			{ TEXT("시간일치감"),   TEXT("눈으로 본 자극과 실제 촉각 자극이 동시에 일어난 것처럼 느껴졌는가?") },
 			{ TEXT("촉각왜곡"),     TEXT("실제로 자극받은 부위가 아니라, 눈으로 본 위치에서 촉각이 느껴졌는가?") },
@@ -53,7 +54,8 @@ ASurveyManager::ASurveyManager()
 	};
 
 	TitleWidget    = MakeText(TEXT("TitleWidget"),    FVector(0.0f, 0.0f, 25.0f), FVector2D(1200.0f, 120.0f), 0.06f);
-	QuestionWidget = MakeText(TEXT("QuestionWidget"), FVector(0.0f, 0.0f, 12.0f), FVector2D(1600.0f, 200.0f), 0.05f);
+	// 긴 한글 문항이 양옆으로 잘리지 않도록 패널을 넓힘(2600x300). 실제 줄바꿈은 UVRLabelWidget의 AutoWrapText가 처리.
+	QuestionWidget = MakeText(TEXT("QuestionWidget"), FVector(0.0f, 0.0f, 12.0f), FVector2D(2600.0f, 300.0f), 0.05f);
 }
 
 void ASurveyManager::BeginPlay()
@@ -116,6 +118,18 @@ void ASurveyManager::ShowQuestion(int32 Index)
 	if (!Qs.IsValidIndex(Index))
 	{
 		SaveResults();
+
+		// 설문 종료 시 1~5 Likert 버튼을 화면에서 제거. 먼저 비활성화(만일을 위한 안전장치) 후 액터 파괴.
+		for (AHTDButton* B : AnswerButtons)
+		{
+			if (B)
+			{
+				B->SetEnabledState(false);
+				B->Destroy();
+			}
+		}
+		AnswerButtons.Empty(); // 파괴 후 댕글링 포인터 역참조 방지
+
 		OnFinished.Broadcast();
 		return;
 	}

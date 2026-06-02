@@ -61,8 +61,6 @@ public:
 	// --- Components ------------------------------------------------------------------------------------------------
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "VR") USceneComponent*           SceneRoot;
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "VR") UCameraComponent*          VRCamera;
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "VR") UStaticMeshComponent*      LaunchMarker;
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "VR") UPointLightComponent*      LaunchLight;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "VR") UMotionControllerComponent* LeftMC;
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "VR") USphereComponent*          LeftWristTrigger;

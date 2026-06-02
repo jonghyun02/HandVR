@@ -34,6 +34,8 @@ TSharedRef<SWidget> UVRLabelWidget::RebuildWidget()
 		TextBlock->SetFont(Font);
 		TextBlock->SetColorAndOpacity(FSlateColor(PendingColor));
 		TextBlock->SetJustification(ETextJustify::Center);
+		// 긴 한글 문항이 패널 폭을 넘으면 양옆으로 잘리지 않고 자동 줄바꿈되도록 함.
+		TextBlock->SetAutoWrapText(true);
 	}
 
 	return Super::RebuildWidget();
