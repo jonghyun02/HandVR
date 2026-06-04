@@ -16,11 +16,13 @@ namespace
 {
 	// Wrist trigger volume — large enough to be hit reliably by a relaxed reach.
 	constexpr float WristTriggerRadius = 4.5f; // cm
+	// Keep ~1.2 s of wrist history — covers the largest experiment latency (500 ms) with margin.
+	constexpr double kMaxHistorySec = 1.2;
 }
 
 AHandPawn::AHandPawn()
 {
-	PrimaryActorTick.bCanEverTick = false;
+	PrimaryActorTick.bCanEverTick = true; // drives the wrist-history ring buffer + visual offset/latency apply
 
 	SceneRoot = CreateDefaultSubobject<USceneComponent>(TEXT("SceneRoot"));
 	SetRootComponent(SceneRoot);
@@ -85,15 +87,82 @@ void AHandPawn::BeginPlay()
 	// User accepted "hand disappears when controller is held" as the failure mode, so we just skip the call.
 }
 
+void AHandPawn::Tick(float DeltaSeconds)
+{
+	Super::Tick(DeltaSeconds);
+
+	const double Now = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0;
+
+	// Record this frame's REAL wrist positions, then drop anything older than the history window.
+	FWristSample S;
+	S.Time  = Now;
+	S.Left  = LeftMC  ? LeftMC->GetComponentLocation()  : FVector::ZeroVector;
+	S.Right = RightMC ? RightMC->GetComponentLocation() : FVector::ZeroVector;
+	WristHistory.Add(S);
+
+	int32 FirstKeep = 0;
+	while (FirstKeep < WristHistory.Num() && (Now - WristHistory[FirstKeep].Time) > kMaxHistorySec) ++FirstKeep;
+	if (FirstKeep > 0) WristHistory.RemoveAt(0, FirstKeep);
+
+	ApplyVisualState();
+}
+
+FVector AHandPawn::SampleDelayedWrist(bool bRight, double Now) const
+{
+	const UMotionControllerComponent* MC = bRight ? RightMC : LeftMC;
+	const FVector Live = MC ? MC->GetComponentLocation() : FVector::ZeroVector;
+	if (VisualLatencySec <= KINDA_SMALL_NUMBER || WristHistory.Num() < 2) return Live;
+
+	const double Target = Now - VisualLatencySec;
+	if (Target <= WristHistory[0].Time) return bRight ? WristHistory[0].Right : WristHistory[0].Left;
+
+	for (int32 i = WristHistory.Num() - 1; i >= 1; --i)
+	{
+		if (WristHistory[i - 1].Time <= Target && Target <= WristHistory[i].Time)
+		{
+			const FWristSample& A = WristHistory[i - 1];
+			const FWristSample& B = WristHistory[i];
+			const double Span  = B.Time - A.Time;
+			const float  Alpha = Span > 1e-6 ? static_cast<float>((Target - A.Time) / Span) : 0.0f;
+			return FMath::Lerp(bRight ? A.Right : A.Left, bRight ? B.Right : B.Left, Alpha);
+		}
+	}
+	return Live;
+}
+
+void AHandPawn::ApplyVisualState()
+{
+	const double Now = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0;
+	auto Apply = [&](UMotionControllerComponent* MC, USceneComponent* Offset, bool bRight, const FVector& OffWorld)
+	{
+		if (!MC || !Offset) return;
+		const FVector DelayedWorld = SampleDelayedWrist(bRight, Now);
+		const FVector DesiredWorld = DelayedWorld + OffWorld;            // delayed real wrist + lateral offset (world)
+		Offset->SetRelativeLocation(MC->GetComponentTransform().InverseTransformPosition(DesiredWorld));
+	};
+	Apply(LeftMC,  LeftHandOffset,  false, LeftOffsetWorld);
+	Apply(RightMC, RightHandOffset, true,  RightOffsetWorld);
+}
+
 void AHandPawn::SetVisualOffset(const FVector& LeftOffset, const FVector& RightOffset)
 {
-	if (LeftHandOffset)  LeftHandOffset->SetRelativeLocation(LeftOffset);
-	if (RightHandOffset) RightHandOffset->SetRelativeLocation(RightOffset);
+	LeftOffsetWorld  = LeftOffset;
+	RightOffsetWorld = RightOffset;
+	ApplyVisualState();
+}
+
+void AHandPawn::SetVisualLatencyMs(float Ms)
+{
+	VisualLatencySec = FMath::Max(0.0f, Ms) * 0.001f;
 }
 
 void AHandPawn::ResetVisualOffsets()
 {
-	SetVisualOffset(FVector::ZeroVector, FVector::ZeroVector);
+	LeftOffsetWorld  = FVector::ZeroVector;
+	RightOffsetWorld = FVector::ZeroVector;
+	VisualLatencySec = 0.0f;
+	// Keep WristHistory rolling so a latency experiment applies immediately (no buffer-refill warm-up).
+	ApplyVisualState();
 }
 
 void AHandPawn::SetHandsVisible(bool bVisible)

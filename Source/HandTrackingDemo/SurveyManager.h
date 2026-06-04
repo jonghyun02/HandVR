@@ -34,7 +34,8 @@ public:
 
 	UPROPERTY(BlueprintAssignable) FSurveyFinished OnFinished;
 
-	UFUNCTION(BlueprintCallable) void BeginSurvey();
+	/** ConditionTag(실험종류·공간오차·시간오차·일치여부)는 CSV 행에 함께 기록된다. */
+	UFUNCTION(BlueprintCallable) void BeginSurvey(const FString& ConditionTag = TEXT(""));
 
 protected:
 	UFUNCTION() void OnAnswerPressed(int32 ButtonId);
@@ -51,4 +52,5 @@ private:
 
 	int32         CurrentQuestion = 0;
 	TArray<int32> Answers;
+	FString       ConditionTag;   // 이번 응답의 실험 조건 메타 (CSV 행에 기록)
 };

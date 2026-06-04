@@ -10,6 +10,7 @@ class ASurveyManager;
 class UStaticMeshComponent;
 class UWidgetComponent;
 class USoundBase;
+class UAudioComponent;
 
 UENUM(BlueprintType)
 enum class EExperimentState : uint8
@@ -68,8 +69,21 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Layout") FVector StartButtonLoc     = FVector(46.0f, 0.0f, 106.0f);
 	UPROPERTY(EditAnywhere, Category = "Layout") FVector StopButtonLoc      = FVector(46.0f, -34.0f, 100.0f);
 
-	/** The lateral (Y-axis) jump applied to the visual hand during VC/Drift. Positive = user's right. */
+	/** The lateral (Y-axis) jump applied to the visual hand during VC/Drift. Positive = user's right.
+	 *  보고서 5장 "공간오차" 변인 — 가변(예 5/15/30 cm)으로 조건 설정. */
 	UPROPERTY(EditAnywhere, Category = "Experiments") float LateralOffsetCm = 30.0f;
+
+	/** 보고서 5장 "시간오차" 변인 — 시각 손을 실제보다 N ms 지연 렌더(VC/Drift). 가변(예 0/100/300/500 ms). */
+	UPROPERTY(EditAnywhere, Category = "Experiments") float LatencyMs = 0.0f;
+
+	/** RHI 자극 "일치/불일치" 변인 — true면 붓이 보이는 손이 아닌 다른 손가락쪽(어긋난 위치)을 쓰다듬음. */
+	UPROPERTY(EditAnywhere, Category = "Experiments") bool  bBrushMismatch = false;
+
+	/** RHI 붓 왕복 주파수(Hz). 0.5 = 1왕복 2초 → 2초 효과음 1회/왕복과 정합(보고서 4.5). */
+	UPROPERTY(EditAnywhere, Category = "Experiments") float BrushStrokeHz = 0.5f;
+
+	/** 불일치 조건에서 붓 스트로크 중심을 손 중심에서 옮길 거리(cm, 다른 손가락 모사). */
+	UPROPERTY(EditAnywhere, Category = "Experiments") float BrushMismatchShiftCm = 5.0f;
 
 	/** Drift only — peak-to-peak oscillation added on top of LateralOffsetCm. */
 	UPROPERTY(EditAnywhere, Category = "Experiments") float DriftAmplitudeCm = 8.0f;
@@ -125,6 +139,11 @@ private:
 	UPROPERTY() AHTDButton* BtnExit    = nullptr;
 	UPROPERTY() AHTDButton* BtnStop    = nullptr;
 	UPROPERTY() AHTDButton* BtnClose   = nullptr; // 결과 패널 닫기 → MainMenu 복귀
+	UPROPERTY() AHTDButton* BtnCondition = nullptr; // 헤드셋 안에서 8조건 프리셋 순환(보고서 4.4 "1~9 조건 버튼")
+
+	// 현재 활성 조건 프리셋 인덱스. 메뉴의 조건 버튼으로 순환, 다음 실험이 이 조건의 offset/latency/일치를 사용.
+	int32 ActiveConditionIdx = 0;
+	void ApplyActiveCondition(); // 프리셋 → LateralOffsetCm/LatencyMs/bBrushMismatch + 버튼 라벨 갱신
 
 	// Per-experiment props (spawned on entry, destroyed on exit).
 	UPROPERTY() AActor* RHIFakeHand   = nullptr; // also the threatened fake hand in the Threat experiment
@@ -138,10 +157,18 @@ private:
 	UPROPERTY() USoundBase* HammerSound = nullptr;
 	float PrevThreatT = 0.0f;
 
-	// Brush-stroke SFX (runtime-loaded from /Game/Imported/Audio/brush); PrevBrushOff edge-detects each sweep
-	// across the hand so the sound fires once per stroke, not every frame.
+	// Brush-stroke SFX (runtime-loaded from /Game/Imported/Audio/brush).
 	UPROPERTY() USoundBase* BrushSound = nullptr;
 	float PrevBrushOff = 0.0f;
+
+	// Per-prop audio components (attached to the brush/hammer actors) — Play() restarts the 2 s clip on each
+	// stroke/strike so it never piles up (vs SpawnSoundAtLocation which overlapped). Spatialized at the prop.
+	UPROPERTY() UAudioComponent* BrushAudio  = nullptr;
+	UPROPERTY() UAudioComponent* ThreatAudio = nullptr;
+	int32 BrushCycle = -1; // last completed brush 왕복 index — fires the stroke sound once per cycle
+
+	// Condition metadata (실험종류·공간오차·시간오차·일치여부) recorded with the survey row for this run.
+	FString CurrentConditionTag;
 
 	UPROPERTY() ASurveyManager* Survey = nullptr;
 

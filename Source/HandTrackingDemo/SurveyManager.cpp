@@ -5,6 +5,7 @@
 
 #include "Components/WidgetComponent.h"
 #include "Engine/World.h"
+#include "HAL/FileManager.h"
 #include "Misc/DateTime.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
@@ -104,8 +105,9 @@ void ASurveyManager::BeginPlay()
 	}
 }
 
-void ASurveyManager::BeginSurvey()
+void ASurveyManager::BeginSurvey(const FString& InConditionTag)
 {
+	ConditionTag    = InConditionTag;
 	CurrentQuestion = 0;
 	Answers.Reset();
 	for (AHTDButton* B : AnswerButtons) if (B) B->SetEnabledState(true);
@@ -161,21 +163,31 @@ void ASurveyManager::OnAnswerPressed(int32 ButtonId)
 
 void ASurveyManager::SaveResults()
 {
-	const FString Stamp = FDateTime::Now().ToString(TEXT("%Y%m%d_%H%M%S"));
-	const FString FileName = FPaths::ProjectSavedDir() / FString::Printf(TEXT("SurveyResults_%s.csv"), *Stamp);
-
 	const auto& Qs = GetQuestions();
-	TArray<FString> Lines;
+	// One CUMULATIVE file per project so all conditions/participants accumulate (보고서 4.6 "한 파일 누적"),
+	// each row stamped + tagged with its condition. Matches ExperimentManager's SurveyResults_*.csv glob.
+	const FString Path  = FPaths::ProjectSavedDir() / TEXT("SurveyResults_log.csv");
+	const FString Stamp = FDateTime::Now().ToString(TEXT("%Y-%m-%d %H:%M:%S"));
+
+	// 미완료 응답은 중간값(3)으로 패딩 — 사고로 일부만 답해도 행 보존(보고서 4.6).
+	TArray<int32> Padded = Answers;
+	while (Padded.Num() < Qs.Num()) Padded.Add(3);
+
+	FString SafeTag = ConditionTag.IsEmpty() ? TEXT("manual") : ConditionTag;
+	SafeTag.ReplaceInline(TEXT(","), TEXT(";")); // keep CSV columns intact
+
+	// Write the header once (with BOM for Excel); append each data row without BOM.
+	if (!IFileManager::Get().FileExists(*Path))
 	{
-		TArray<FString> Header; for (auto& Q : Qs) Header.Add(Q.Key);
-		Lines.Add(FString::Join(Header, TEXT(",")));
-	}
-	{
-		TArray<FString> Row; for (int32 S : Answers) Row.Add(FString::FromInt(S));
-		Lines.Add(FString::Join(Row, TEXT(",")));
+		TArray<FString> Header; Header.Add(TEXT("Timestamp")); Header.Add(TEXT("Condition"));
+		for (auto& Q : Qs) Header.Add(Q.Key);
+		FFileHelper::SaveStringToFile(FString::Join(Header, TEXT(",")) + TEXT("\r\n"), *Path,
+			FFileHelper::EEncodingOptions::ForceUTF8);
 	}
 
-	const FString Content = FString::Join(Lines, TEXT("\r\n"));
-	// UE5.7: ForceUTF8 writes UTF-8 *with* BOM (Excel-compatible); ForceUTF8WithoutBOM strips it.
-	FFileHelper::SaveStringToFile(Content, *FileName, FFileHelper::EEncodingOptions::ForceUTF8);
+	TArray<FString> Row; Row.Add(Stamp); Row.Add(SafeTag);
+	for (int32 i = 0; i < Qs.Num(); ++i) Row.Add(FString::FromInt(Padded[i]));
+	// FILEWRITE_Append + WithoutBOM → row appends cleanly; flushed immediately so a crash keeps prior rows.
+	FFileHelper::SaveStringToFile(FString::Join(Row, TEXT(",")) + TEXT("\r\n"), *Path,
+		FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM, &IFileManager::Get(), EFileWrite::FILEWRITE_Append);
 }

@@ -37,12 +37,17 @@ public:
 	AHandPawn();
 
 	virtual void BeginPlay() override;
+	virtual void Tick(float DeltaSeconds) override;
 
-	/** Set lateral / vertical / forward visual offset for each hand (in cm, relative to real wrist). */
+	/** Set WORLD-space visual offset for each hand (cm). +Y = user's right. Applied every tick on top of latency. */
 	UFUNCTION(BlueprintCallable, Category = "Hands")
 	void SetVisualOffset(const FVector& LeftOffset, const FVector& RightOffset);
 
-	/** Shorthand: reset both hands to no offset. */
+	/** Temporal mismatch: render the SEEN hand this many ms BEHIND the real wrist (0 = realtime). */
+	UFUNCTION(BlueprintCallable, Category = "Hands")
+	void SetVisualLatencyMs(float Ms);
+
+	/** Shorthand: reset both hands to no offset AND no latency. */
 	UFUNCTION(BlueprintCallable, Category = "Hands")
 	void ResetVisualOffsets();
 
@@ -71,4 +76,18 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "VR") USphereComponent*          RightWristTrigger;
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "VR") USceneComponent*           RightHandOffset;
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "VR") UOculusXRHandComponent*    RightHand;
+
+private:
+	// One recorded real-wrist sample (world space) used to replay the seen hand with a temporal delay.
+	struct FWristSample { double Time; FVector Left; FVector Right; };
+	TArray<FWristSample> WristHistory;   // ring (append each tick, trim older than kMaxHistorySec)
+
+	FVector LeftOffsetWorld  = FVector::ZeroVector;  // current world-space visual offset (set by ExperimentManager)
+	FVector RightOffsetWorld = FVector::ZeroVector;
+	float   VisualLatencySec = 0.0f;                 // seen-hand delay (s)
+
+	// Returns the buffered real-wrist world location at (now - VisualLatencySec); falls back to the live MC
+	// location when latency is 0 or the history is too short. Linear-interpolated between bracketing samples.
+	FVector SampleDelayedWrist(bool bRight, double Now) const;
+	void    ApplyVisualState();  // recompute both HandOffset transforms from offset + latency (called each tick)
 };

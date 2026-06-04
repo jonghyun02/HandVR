@@ -7,6 +7,7 @@
 
 #include "Components/StaticMeshComponent.h"
 #include "Components/WidgetComponent.h"
+#include "Components/AudioComponent.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/StaticMeshActor.h"
 #include "Engine/World.h"
@@ -34,6 +35,22 @@ namespace
 	constexpr int32 BID_Threat  = 8;
 	constexpr int32 BID_Results = 9;
 	constexpr int32 BID_Close   = 10;
+	constexpr int32 BID_Condition = 11;
+
+	// In-headset condition presets (보고서 5장 변인을 빌드 재컴파일 없이 순환). 메뉴의 [조건] 버튼이 순환하고,
+	// 다음 실험이 활성 조건의 공간오차/시간오차/일치여부를 사용한다. 진행자가 헤드셋을 벗지 않고 조건 전환.
+	struct FCondPreset { const TCHAR* Name; float OffsetCm; float LatencyMs; bool bMatched; };
+	const FCondPreset kConditions[] = {
+		{ TEXT("C1 동기화"),     0.0f,   0.0f,   true  }, // 최상의 동기화(기준)
+		{ TEXT("C2 공간5"),      5.0f,   0.0f,   true  }, // 공간오차 가변
+		{ TEXT("C2 공간15"),     15.0f,  0.0f,   true  },
+		{ TEXT("C2 공간30"),     30.0f,  0.0f,   true  },
+		{ TEXT("C3 시간100"),    0.0f,   100.0f, true  }, // 시간오차 가변
+		{ TEXT("C3 시간300"),    0.0f,   300.0f, true  },
+		{ TEXT("C3 시간500"),    0.0f,   500.0f, true  },
+		{ TEXT("C4 공존"),       30.0f,  300.0f, true  }, // 시/공간 오차 공존
+		{ TEXT("C5 불일치"),     30.0f,  0.0f,   false }, // 촉각 불일치(다른 손가락)
+	};
 
 	// Uniform fit-scale applied to an imported mesh so its LONGEST world dimension matches TargetBoxCm's largest
 	// component (shape preserved). Pure function of mesh bounds + target, so spawn and tick agree on the scale.
@@ -128,13 +145,16 @@ void AExperimentManager::BeginPlay()
 	BtnSurvey  = SpawnButton(BID_Survey,  TEXT("설문"),         Cell(0, RowBottomZ), FLinearColor(0.8f, 0.7f, 0.2f));
 	BtnResults = SpawnButton(BID_Results, TEXT("결과"),         Cell(1, RowBottomZ), FLinearColor(0.2f, 0.7f, 0.7f));
 	BtnExit    = SpawnButton(BID_Exit,    TEXT("종료"),         Cell(2, RowBottomZ), FLinearColor(0.7f, 0.3f, 0.3f));
+	// 조건 순환 버튼(하단 우측) — 헤드셋 안에서 8조건 프리셋 전환(보고서 4.4).
+	BtnCondition = SpawnButton(BID_Condition, TEXT("조건"),    Cell(3, RowBottomZ), FLinearColor(0.55f, 0.45f, 0.8f));
 	// 실험 중단 / 결과 패널 닫기
-	BtnStop    = SpawnButton(BID_Stop,    TEXT("중단"),                  StopButtonLoc,            FLinearColor(0.9f, 0.2f, 0.2f));
+	BtnStop    = SpawnButton(BID_Stop,    TEXT("완료\n설문"),             StopButtonLoc,            FLinearColor(0.9f, 0.2f, 0.2f));
 	BtnClose   = SpawnButton(BID_Close,   TEXT("닫기"),                  StopButtonLoc,            FLinearColor(0.9f, 0.5f, 0.2f));
 
+	ApplyActiveCondition(); // 초기 조건(C1) 적용 + 조건 버튼 라벨 설정
 	EnterStart();
 
-	UE_LOG(LogTemp, Display, TEXT("[HandVR] ExperimentManager ready: 9 buttons spawned, state=Start"));
+	UE_LOG(LogTemp, Display, TEXT("[HandVR] ExperimentManager ready: 10 buttons spawned, state=Start"));
 }
 
 AHTDButton* AExperimentManager::SpawnButton(int32 ButtonId, const FString& Label, FVector Loc, FLinearColor Tint)
@@ -186,6 +206,7 @@ void AExperimentManager::SetButtonsVisible(bool bStart, bool bMenu, bool bStop, 
 	if (BtnSurvey)  BtnSurvey->SetEnabledState(bMenu);
 	if (BtnResults) BtnResults->SetEnabledState(bMenu);
 	if (BtnExit)    BtnExit->SetEnabledState(bMenu);
+	if (BtnCondition) BtnCondition->SetEnabledState(bMenu);
 	if (BtnStop)    BtnStop->SetEnabledState(bStop);
 	if (BtnClose)   BtnClose->SetEnabledState(bClose);
 }
@@ -198,6 +219,15 @@ void AExperimentManager::EnterStart()
 	DespawnResultsPanel();
 	if (AHandPawn* P = GetHandPawn()) { P->ResetVisualOffsets(); P->SetHandsVisible(true); }
 	SetButtonsVisible(/*start*/ true, /*menu*/ false, /*stop*/ false, /*close*/ false);
+
+	// 맨 처음 스토리(인트로) — 신체소유감 유도 사전 안내. [시작]을 누르면 EnterMainMenu가 DespawnProps로 제거.
+	ShowExperimentInfo(
+		TEXT("지각(知覺) 실험실에 오신 것을 환영합니다"),
+		TEXT("의자에 편히 앉아 양손을 책상 위에 자연스럽게 올려 주세요.\n\n"
+		     "잠시 후 당신의 손에서 '보이는 것'과 '느껴지는 것'이\n"
+		     "서로 어긋날 수 있습니다. 옳고 그름을 판단하지 말고\n"
+		     "그저 무엇이 느껴지는지 가만히 관찰해 주세요.\n\n"
+		     "준비가 되면 아래 [시작] 버튼에 손을 가져가 주세요."));
 }
 
 void AExperimentManager::EnterMainMenu()
@@ -221,6 +251,23 @@ void AExperimentManager::EnterExperiment(EExperimentType Type)
 	AHandPawn* P = GetHandPawn();
 	UWorld*    W = GetWorld();
 	if (!P || !W) return;
+
+	// Clean visual state each entry; VC/Drift set spatial offset + temporal latency below.
+	P->ResetVisualOffsets();
+	BrushCycle = -1;
+
+	// Record this run's condition (실험종류·공간오차·시간오차·일치여부) — logged with the survey row.
+	const TCHAR* TName = TEXT("None");
+	switch (Type)
+	{
+		case EExperimentType::RHI:           TName = TEXT("RHI");    break;
+		case EExperimentType::VisualCapture: TName = TEXT("VC");     break;
+		case EExperimentType::Drift:         TName = TEXT("Drift");  break;
+		case EExperimentType::Threat:        TName = TEXT("Threat"); break;
+		default: break;
+	}
+	CurrentConditionTag = FString::Printf(TEXT("%s|offset=%.0fcm|latency=%.0fms|stim=%s"),
+		TName, LateralOffsetCm, LatencyMs, bBrushMismatch ? TEXT("mismatch") : TEXT("match"));
 
 	const float DeskHeight   = 73.0f;
 	const float DeskFrontX   = 30.0f;
@@ -310,16 +357,26 @@ void AExperimentManager::EnterExperiment(EExperimentType Type)
 				const FVector ToTip   = WorkingPartWorldOffset(BrushMesh, Scale, kBrushRot, /*bPositiveEnd*/ kBrushBristleAtPositiveEnd);
 				RHIBrush->SetActorLocation(HandLoc + FVector(0.0f, 0.0f, 1.0f) - ToTip);
 			}
-			// Brush-stroke SFX (runtime load; quiet null if missing). PrevBrushOff reset so the first sweep fires.
+			// Brush-stroke SFX as a prop-attached AudioComponent: Play() restarts the 2 s clip once per 왕복 so it
+			// is spatialized at the brush and never overlaps (vs SpawnSoundAtLocation, which piled up at 2 Hz).
 			if (!BrushSound) BrushSound = LoadObject<USoundBase>(nullptr, TEXT("/Game/Imported/Audio/brush.brush"));
+			if (RHIBrush && BrushSound)
+			{
+				BrushAudio = NewObject<UAudioComponent>(RHIBrush);
+				BrushAudio->SetupAttachment(RHIBrush->GetRootComponent());
+				BrushAudio->SetSound(BrushSound);
+				BrushAudio->bAutoActivate = false;
+				BrushAudio->RegisterComponent();
+			}
 			PrevBrushOff = 0.0f;
 			break;
 		}
 
 		case EExperimentType::VisualCapture:
 		{
-			// Snap visual hands +30 cm laterally — instant, no fade. Real wrist position unchanged.
+			// Snap visual hands +LateralOffsetCm laterally — instant, no fade. Real wrist position unchanged.
 			P->SetVisualOffset(FVector(0.0f, LateralOffsetCm, 0.0f), FVector(0.0f, LateralOffsetCm, 0.0f));
+			P->SetVisualLatencyMs(LatencyMs); // 시간오차 변인 (보고서 5장)
 
 			// Target on desk — a plain RED SPHERE the user reaches for with the seen hand. (Previously this used
 			// TargetMesh = SM_ClawHammer, which is why a HAMMER appeared on the desk in 실험2 — removed per request.
@@ -338,6 +395,7 @@ void AExperimentManager::EnterExperiment(EExperimentType Type)
 		case EExperimentType::Drift:
 		{
 			P->SetVisualOffset(FVector(0.0f, LateralOffsetCm, 0.0f), FVector(0.0f, LateralOffsetCm, 0.0f));
+			P->SetVisualLatencyMs(LatencyMs); // 시간오차 변인 (보고서 5장)
 
 			// Ghost cube at the REAL hand position — tick updates its transform to track real wrist.
 			DriftGhost = MakeMesh(TEXT("Drift_Ghost"),
@@ -362,8 +420,16 @@ void AExperimentManager::EnterExperiment(EExperimentType Type)
 				FLinearColor(0.25f, 0.25f, 0.27f)); // dark grey hammer
 			UE_LOG(LogTemp, Display, TEXT("[HandVR] Threat spawn: TargetMesh %s (fitScale=%.3f)"),
 				TargetMesh ? TEXT("LOADED") : TEXT("NULL -> cube fallback"), ComputeFitScale(TargetMesh, kHammerFitBox));
-			// Hammer impact SFX (runtime load; quiet null if missing). PrevThreatT reset so the first hit fires.
+			// Hammer impact SFX as a prop-attached AudioComponent: Play() restarts the 2 s clip on each strike.
 			if (!HammerSound) HammerSound = LoadObject<USoundBase>(nullptr, TEXT("/Game/Imported/Audio/hammer.hammer"));
+			if (ThreatHammer && HammerSound)
+			{
+				ThreatAudio = NewObject<UAudioComponent>(ThreatHammer);
+				ThreatAudio->SetupAttachment(ThreatHammer->GetRootComponent());
+				ThreatAudio->SetSound(HammerSound);
+				ThreatAudio->bAutoActivate = false;
+				ThreatAudio->RegisterComponent();
+			}
 			PrevThreatT = 0.0f;
 			break;
 		}
@@ -396,7 +462,7 @@ void AExperimentManager::EnterSurvey()
 	if (Survey)
 	{
 		Survey->OnFinished.AddDynamic(this, &AExperimentManager::OnSurveyFinished);
-		Survey->BeginSurvey();
+		Survey->BeginSurvey(CurrentConditionTag);
 	}
 }
 
@@ -636,24 +702,27 @@ void AExperimentManager::TickRHI(float /*DeltaTime*/)
 	AHandPawn* P = GetHandPawn();
 	if (!P) return;
 
-	// Sweep the BRISTLE TIP back and forth ON the user's OWN (right) tracked hand, 1 Hz (~±6 cm), rather than
-	// moving the whole brush off in space. Convert "origin at hand" into "bristle tip at hand" via the bounds:
-	// actorLoc = handLoc - worldOffset(origin -> bristle tip). The tip then lands ~1 cm above the hand surface,
-	// and the sweep is added to the hand target (so the TIP, not the origin, traces the stroke).
-	const FVector Center = P->GetVisualWristLocation(/*right*/ true);
-	const float   Ampl   = 6.0f; // cm — stroke length (±6)
-	const float   Hz     = 1.0f;
-	const float   Off    = FMath::Sin(ExperimentTime * Hz * 2.0f * PI) * Ampl;
-	const float   Scale  = ComputeFitScale(BrushMesh, kBrushFitBox);
-	const FVector ToTip  = WorkingPartWorldOffset(BrushMesh, Scale, kBrushRot, /*bPositiveEnd*/ kBrushBristleAtPositiveEnd);
-	const FVector TipTarget = Center + FVector(Off, 0.0f, 1.0f); // bristle tip sweeps across, 1 cm above the hand
-	RHIBrush->SetActorLocation(TipTarget - ToTip);
+	// Sweep the BRISTLE TIP back and forth over the user's seen (right) hand. Convert "origin at hand" into
+	// "bristle tip at hand" via the bounds: actorLoc = tipTarget - worldOffset(origin -> bristle tip), so the
+	// TIP (not the origin) traces the stroke ~1 cm above the hand surface.
+	FVector Center = P->GetVisualWristLocation(/*right*/ true);
+	// 불일치(mismatch) 조건: 보이는 손 중심이 아니라 다른 손가락쪽(+X)으로 스트로크 중심을 옮긴다 (보고서 4.5).
+	if (bBrushMismatch) Center += FVector(BrushMismatchShiftCm, 0.0f, 0.0f);
 
-	// Play the brush-stroke sound once per sweep across the hand (sign flip of Off = passing the hand centre,
-	// the fastest part of the stroke). Edge-detected via PrevBrushOff so it triggers once per pass.
-	if (BrushSound && PrevBrushOff != 0.0f && FMath::Sign(Off) != FMath::Sign(PrevBrushOff))
+	const float   Ampl  = 6.0f; // cm — stroke length (±6)
+	const float   Hz    = FMath::Max(0.05f, BrushStrokeHz); // 0.5 Hz = 1왕복/2s
+	const float   Off   = FMath::Sin(ExperimentTime * Hz * 2.0f * PI) * Ampl;
+	const float   Scale = ComputeFitScale(BrushMesh, kBrushFitBox);
+	const FVector ToTip = WorkingPartWorldOffset(BrushMesh, Scale, kBrushRot, /*bPositiveEnd*/ kBrushBristleAtPositiveEnd);
+	RHIBrush->SetActorLocation(Center + FVector(Off, 0.0f, 1.0f) - ToTip);
+
+	// Play the 2 s brush clip once per 왕복 (one full sine cycle). floor(t*Hz) ticks up once per cycle; Play()
+	// restarts the prop-attached AudioComponent so clips never overlap.
+	const int32 Cycle = FMath::FloorToInt(ExperimentTime * Hz);
+	if (BrushAudio && Cycle > BrushCycle)
 	{
-		UGameplayStatics::SpawnSoundAtLocation(GetWorld(), BrushSound, Center);
+		BrushAudio->Play();
+		BrushCycle = Cycle;
 	}
 	PrevBrushOff = Off;
 }
@@ -723,12 +792,35 @@ void AExperimentManager::TickThreat(float /*DeltaTime*/)
 	ThreatHammer->SetActorRotation(Rot);
 
 	// Hammer impact SFX: fire exactly ONCE per cycle at the STRIKE->IMPACT crossing (t passes 1.4 = head hits
-	// the hand). Edge-detected via PrevThreatT so it doesn't retrigger every frame during the impact window.
-	if (HammerSound && PrevThreatT < 1.4f && t >= 1.4f)
+	// the hand). Play() restarts the prop-attached 2 s clip each strike (period 3 s > 2 s clip → no overlap).
+	if (ThreatAudio && PrevThreatT < 1.4f && t >= 1.4f)
 	{
-		UGameplayStatics::SpawnSoundAtLocation(GetWorld(), HammerSound, HandLoc);
+		ThreatAudio->Play();
 	}
 	PrevThreatT = t;
+}
+
+// --- Condition presets -------------------------------------------------------------------------------------------
+
+void AExperimentManager::ApplyActiveCondition()
+{
+	const int32 N = UE_ARRAY_COUNT(kConditions);
+	ActiveConditionIdx = ((ActiveConditionIdx % N) + N) % N; // wrap (handles the ++ in the button handler)
+	const FCondPreset& C = kConditions[ActiveConditionIdx];
+
+	// Drive the experiment variables from the active preset; EnterExperiment reads these.
+	LateralOffsetCm = C.OffsetCm;
+	LatencyMs       = C.LatencyMs;
+	bBrushMismatch  = !C.bMatched;
+
+	if (BtnCondition)
+	{
+		BtnCondition->Configure(
+			FString::Printf(TEXT("조건 %d/%d\n%s"), ActiveConditionIdx + 1, N, C.Name),
+			BID_Condition, FLinearColor(0.55f, 0.45f, 0.8f));
+	}
+	UE_LOG(LogTemp, Display, TEXT("[HandVR] Condition %d/%d %s (offset=%.0f latency=%.0f match=%d)"),
+		ActiveConditionIdx + 1, N, C.Name, LateralOffsetCm, LatencyMs, C.bMatched ? 1 : 0);
 }
 
 // --- Events ------------------------------------------------------------------------------------------------------
@@ -742,10 +834,12 @@ void AExperimentManager::OnButtonPressed(int32 ButtonId)
 		case BID_VC:      if (State == EExperimentState::MainMenu)   EnterExperiment(EExperimentType::VisualCapture); break;
 		case BID_Drift:   if (State == EExperimentState::MainMenu)   EnterExperiment(EExperimentType::Drift);  break;
 		case BID_Threat:  if (State == EExperimentState::MainMenu)   EnterExperiment(EExperimentType::Threat); break;
-		case BID_Survey:  if (State == EExperimentState::MainMenu)   EnterSurvey();                            break;
+		case BID_Survey:  if (State == EExperimentState::MainMenu)   { CurrentConditionTag = TEXT("manual"); EnterSurvey(); } break;
 		case BID_Results: if (State == EExperimentState::MainMenu)   EnterResults();                           break;
+		case BID_Condition: if (State == EExperimentState::MainMenu) { ++ActiveConditionIdx; ApplyActiveCondition(); } break;
 		case BID_Exit:    if (State == EExperimentState::MainMenu)   UKismetSystemLibrary::QuitGame(GetWorld(), nullptr, EQuitPreference::Quit, false); break;
-		case BID_Stop:    if (State == EExperimentState::Experiment) EnterMainMenu();                          break;
+		// 실험 종료 → 해당 조건 설문 자동 표시(보고서 4.4) → 응답 후 메뉴 복귀.
+		case BID_Stop:    if (State == EExperimentState::Experiment) EnterSurvey();                            break;
 		case BID_Close:   if (State == EExperimentState::Results)    EnterMainMenu();                          break;
 		default: break;
 	}
@@ -759,6 +853,10 @@ void AExperimentManager::OnSurveyFinished()
 
 void AExperimentManager::DespawnProps()
 {
+	// Audio components are attached to RHIBrush / ThreatHammer, so destroying those actors destroys the
+	// components too — just drop our pointers so we never touch a dangling component.
+	BrushAudio  = nullptr;
+	ThreatAudio = nullptr;
 	auto Kill = [](AActor*& A) { if (A) { A->Destroy(); A = nullptr; } };
 	Kill(RHIFakeHand);
 	Kill(RHIBrush);
