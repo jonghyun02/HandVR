@@ -36,6 +36,7 @@ namespace
 	constexpr int32 BID_Results = 9;
 	constexpr int32 BID_Close   = 10;
 	constexpr int32 BID_Condition = 11;
+	constexpr int32 BID_ToMenu    = 12; // 실험 중 "메뉴로(다른 실험)" — 설문 건너뛰고 메뉴 복귀
 
 	// In-headset condition presets (보고서 5장 변인을 빌드 재컴파일 없이 순환). 메뉴의 [조건] 버튼이 순환하고,
 	// 다음 실험이 활성 조건의 공간오차/시간오차/일치여부를 사용한다. 진행자가 헤드셋을 벗지 않고 조건 전환.
@@ -166,6 +167,8 @@ void AExperimentManager::BeginPlay()
 	BtnCondition = SpawnButton(BID_Condition, TEXT("조건"),    Cell(3, RowBottomZ), FLinearColor(0.55f, 0.45f, 0.8f));
 	// 실험 중단 / 결과 패널 닫기
 	BtnStop    = SpawnButton(BID_Stop,    TEXT("완료\n설문"),             StopButtonLoc,            FLinearColor(0.9f, 0.2f, 0.2f));
+	// 실험 중: 설문 안 하고 바로 메뉴로(다른 실험 하러). BtnStop 반대쪽(+Y 68cm)에 둬서 안 겹침.
+	BtnMenu    = SpawnButton(BID_ToMenu,  TEXT("메뉴\n(다른 실험)"),       StopButtonLoc + FVector(0.0f, 68.0f, 0.0f), FLinearColor(0.2f, 0.6f, 0.9f));
 	BtnClose   = SpawnButton(BID_Close,   TEXT("닫기"),                  StopButtonLoc,            FLinearColor(0.9f, 0.5f, 0.2f));
 
 	ApplyActiveCondition(); // 초기 조건(C1) 적용 + 조건 버튼 라벨 설정
@@ -225,6 +228,7 @@ void AExperimentManager::SetButtonsVisible(bool bStart, bool bMenu, bool bStop, 
 	if (BtnExit)    BtnExit->SetEnabledState(bMenu);
 	if (BtnCondition) BtnCondition->SetEnabledState(bMenu);
 	if (BtnStop)    BtnStop->SetEnabledState(bStop);
+	if (BtnMenu)    BtnMenu->SetEnabledState(bStop); // 실험 중 BtnStop과 함께 표시(설문 대신 메뉴行 선택지)
 	if (BtnClose)   BtnClose->SetEnabledState(bClose);
 }
 
@@ -837,6 +841,7 @@ void AExperimentManager::OnButtonPressed(int32 ButtonId)
 		case BID_Exit:    if (State == EExperimentState::MainMenu)   UKismetSystemLibrary::QuitGame(GetWorld(), nullptr, EQuitPreference::Quit, false); break;
 		// 실험 종료 → 해당 조건 설문 자동 표시(보고서 4.4) → 응답 후 메뉴 복귀.
 		case BID_Stop:    if (State == EExperimentState::Experiment) EnterSurvey();                            break;
+		case BID_ToMenu:  if (State == EExperimentState::Experiment) EnterMainMenu();                          break; // 설문 건너뛰고 다른 실험
 		case BID_Close:   if (State == EExperimentState::Results)    EnterMainMenu();                          break;
 		default: break;
 	}

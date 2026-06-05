@@ -138,6 +138,7 @@ private:
 	UPROPERTY() AHTDButton* BtnResults = nullptr;
 	UPROPERTY() AHTDButton* BtnExit    = nullptr;
 	UPROPERTY() AHTDButton* BtnStop    = nullptr;
+	UPROPERTY() AHTDButton* BtnMenu    = nullptr; // 실험 중 "메뉴로(다른 실험)" — 설문 건너뛰고 메뉴 복귀
 	UPROPERTY() AHTDButton* BtnClose   = nullptr; // 결과 패널 닫기 → MainMenu 복귀
 	UPROPERTY() AHTDButton* BtnCondition = nullptr; // 헤드셋 안에서 8조건 프리셋 순환(보고서 4.4 "1~9 조건 버튼")
 
