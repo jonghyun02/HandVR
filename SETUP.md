@@ -134,9 +134,9 @@ Quest Link + SteamVR/Oculus 런타임 켠 상태에서 에디터 **Play (VR Prev
 
 | 실험                       | 즉시 효과 (버튼 누른 그 프레임에 발생)                                              |
 |----------------------------|-------------------------------------------------------------------------------------|
-| 1. 고무손 착각 (RHI)        | 실제 추적 손 → **숨김**. 책상 위에 정적 가짜 손 + 그 위로 가상 붓이 1Hz로 왕복 자극   |
-| 2. 시각적 포착 (VC)         | 양손 시각 위치 = 실제 손목 + **(0, +30, 0) cm** (오른쪽으로 30cm 점프). 책상에 빨간 타겟 |
-| 3. 고유수용감각 표류 (Drift)| VC와 동일 + Y offset = 30 + 8·sin(2π·0.4·t) cm 으로 흔들림. **실제 손 위치에 파란 마커** |
+| 1. 고무손 착각 (RHI)        | 추적 손은 그대로 보임. 그 위로 세로로 선 가상 붓이 1Hz로 왕복하며 손등을 쓰다듬음        |
+| 2. 시각적 포착 (VC)         | 양손 시각 위치 = 실제 손목 + **(0, +30, 0) cm** (오른쪽으로 30cm 점프). 별도 타겟 없음   |
+| 3. 고유수용감각 표류 (Drift)| VC와 동일 + Y offset = 30 + 8·sin(2π·0.4·t) cm 으로 흔들림. 별도 마커 없음               |
 
 중단 버튼 (왼쪽 상부, 빨간색) 누르면 즉시 메뉴로 복귀.
 
@@ -180,6 +180,7 @@ Quest Link + SteamVR/Oculus 런타임 켠 상태에서 에디터 **Play (VR Prev
 | 가상 손 떨림 / 끊김                                    | `ConfidenceBehavior=None`은 이미 적용. Quest 3 OS 최신으로                              |
 | 버튼이 안 눌림                                          | 실제 손목을 버튼 위치까지 가져가야 함. `LeftWristTrigger`/`RightWristTrigger` 반경 4.5cm |
 | 버튼/설문 라벨이 □□□로 깨짐                            | UMG Slate 기본 폰트가 한글 fallback을 못 잡는 빌드면 §8 참고 (드문 케이스)              |
+| **Meta XR Simulator 크래시** `check(MotionVectorIndex == MotionVectorDepthIndex)` (OpenXRHMD.cpp:2765) | 엔진 `UE_5.7/Engine/Config/ConsoleVariables.ini` 의 `[Startup]` 에 **`xr.OpenXRAcquireMode=1`** 추가 후 **에디터 완전 재시작**. §9 참고. (프로젝트 `DefaultEngine.ini`의 `[ConsoleVariables]`는 OpenXR HMD가 생성된 *뒤에* 적용돼 너무 늦음 → 시뮬레이터의 깨진 swapchain 인덱스를 그대로 신뢰하다 assert) |
 
 ---
 
@@ -203,3 +204,39 @@ Quest Link + SteamVR/Oculus 런타임 켠 상태에서 에디터 **Play (VR Prev
 
 **B. 영어 라벨로 일괄 폴백**
 `ExperimentManager.cpp` 의 한글 라벨을 `"Start"`, `"Exp1 RHI"`, `"Exp2 VC"`, `"Exp3 Drift"`, `"Survey"`, `"Exit"`, `"Stop"` 으로 바꾸고, `SurveyManager.cpp` 의 8문항도 영문 번역으로 교체.
+
+---
+
+## 9. Meta XR Simulator 크래시/불안정 — ★해법은 RHI를 D3D11로 (커맨드라인 검증 완료 2026-06-05)
+
+PC에서 Meta XR Simulator로 VR Preview 시 **두 개의 별개 문제**가 있다. 둘을 헷갈리지 말 것.
+
+### 9-A. OpenXRHMD.cpp:2765 크래시 — **D3D11로 해결됨**
+**증상**: VR 진입 직후(프레임 ~10~390)
+```
+Assertion failed: MotionVectorIndex == MotionVectorDepthIndex  [OpenXRHMD.cpp] [Line: 2765]
+```
+**원인 (UE 5.7 코드 추적)**: 시뮬레이터가 `XR_FB_space_warp` 확장을 광고 → UE가 frame-synthesis용 motion-vector swapchain 2개를 **확장 유무만으로** 할당(`GetRecommendedMotionVectorTextureSize`). 시뮬레이터의 **D3D12** swapchain acquire가 두 swapchain 인덱스를 어긋나게 반환 → `check()` 실패.
+**검증으로 밝혀진 것**:
+- `xr.OpenXRFrameSynthesis=0` → swapchain 할당을 못 막음(확장 게이트라). **효과 없음.**
+- `xr.OpenXRAcquireMode=1` → **이미 엔진 코드가 1로 박아둠**(런타임 `LastSetBy: Code` 확인). 그런데도 D3D12에선 매 런 크래시. **효과 없음.**
+- **`-d3d11`(또는 DefaultGraphicsRHI_DX11) → 2765 사라짐.** D3D11(`XR_KHR_D3D11_enable`) 경로는 그 assert를 안 침. 커맨드라인 `UnrealEditor.exe <proj> /Game/Maps/Main -game -vr -d3d11` 로 프레임 정상 진행 + 2765 0건 확인. D3D12는 100% 크래시.
+
+**해결 (적용됨, git에 들어감)**: `Config/DefaultEngine.ini`
+```ini
+[/Script/WindowsTargetPlatform.WindowsTargetSettings]
+DefaultGraphicsRHI=DefaultGraphicsRHI_DX11
+```
+에디터가 이 Default RHI를 따르므로 **에디터 완전 종료 후 재시작**하면 VR Preview가 D3D11로 떠서 2765가 안 난다. (Quest3 Android 빌드는 Vulkan이라 무관.) 확인: 로그에 `Using Forced/Default RHI: D3D11` + `XR_KHR_D3D11_enable`.
+
+### 9-B. DXGI_ERROR_DEVICE_REMOVED (D3D11Query.cpp:396) — **가상 디스플레이 어댑터 GPU TDR (환경 문제)**
+9-A를 고쳐 D3D11로 프레임이 돌면, VR 버퍼(3360×1760) **첫 스테레오 present** 직후 `DXGI_ERROR_DEVICE_REMOVED`로 GPU가 죽을 수 있다. 이 PC엔 **Parsec Virtual Display Adapter + Meta Virtual Monitor + 실제 NVIDIA** 3개 디스플레이 어댑터가 있고, VR present가 가상 디스플레이 경로로 새서 GPU device-removed가 난다. **코드/설정 문제 아님**(메모리 #7-B 동일 머신).
+
+★ **함정: Parsec 앱(`parsecd`)을 꺼도 "Parsec Virtual Display Adapter"는 장치로 그대로 남는다** (확인: parsecd 0개인데 어댑터 잔존 + 여전히 크래시). 앱 종료 ≠ 어댑터 제거.
+
+**해결 (효과 큰 순):**
+1. **장치 관리자 → 디스플레이 어댑터 → "Parsec Virtual Display Adapter" 우클릭 → 디바이스 사용 안 함**(Disable). (필요시 "Meta Virtual Monitor"도. Parsec 다시 쓸 때 재활성화.) 가상 디스플레이가 빠지면 present가 실제 NVIDIA로만 가서 TDR이 사라진다.
+2. **Quest 3 실기기**(`BuildAndDeployQuest3.cmd`) — 헤드셋이 자기 디스플레이라 PC present 경로 자체를 회피. 가장 확실.
+3. (소프트 완화) `[ConsoleVariables] vr.PixelDensity=0.5` 로 VR 해상도를 낮춰 present 부하를 줄이면 TDR 확률이 떨어진다(근본 해결 아님). 저부하(640×480) -game 런은 95초+ 생존 확인.
+
+> 정리: 시뮬레이터로 PC 검증할 거면 **DefaultGraphicsRHI_DX11 + Parsec 끄고 직결**. 안정적 최종 검증은 **Quest 3 실기기**.

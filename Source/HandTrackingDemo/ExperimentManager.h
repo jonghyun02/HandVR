@@ -148,8 +148,6 @@ private:
 	// Per-experiment props (spawned on entry, destroyed on exit).
 	UPROPERTY() AActor* RHIFakeHand   = nullptr; // also the threatened fake hand in the Threat experiment
 	UPROPERTY() AActor* RHIBrush      = nullptr;
-	UPROPERTY() AActor* VCTarget      = nullptr;
-	UPROPERTY() AActor* DriftGhost    = nullptr;
 	UPROPERTY() AActor* ThreatHammer  = nullptr;
 
 	// Hammer impact SFX (runtime-loaded from /Game/Imported/Audio/hammer); PrevThreatT edge-detects the

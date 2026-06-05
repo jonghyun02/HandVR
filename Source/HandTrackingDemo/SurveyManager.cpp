@@ -5,6 +5,7 @@
 
 #include "Components/WidgetComponent.h"
 #include "Engine/World.h"
+#include "TimerManager.h"
 #include "HAL/FileManager.h"
 #include "Misc/DateTime.h"
 #include "Misc/FileHelper.h"
@@ -121,18 +122,24 @@ void ASurveyManager::ShowQuestion(int32 Index)
 	{
 		SaveResults();
 
-		// 설문 종료 시 1~5 Likert 버튼을 화면에서 제거. 먼저 비활성화(만일을 위한 안전장치) 후 액터 파괴.
+		// 설문 종료. 이 호출은 마지막 Likert 버튼의 '오버랩 콜백 안'에서 들어온 것이다(버튼→OnAnswerPressed→여기).
+		// 여기서 그 버튼/설문 액터를 즉시 Destroy()하면, 자기 오버랩이 아직 디스패치 중인 액터·컴포넌트를 부수는
+		// UE 취약 패턴이 된다. 그래서 입력만 즉시 막고(SetEnabledState(false) → 콜리전 off), 실제 파괴 +
+		// OnFinished 브로드캐스트는 '다음 틱'으로 미뤄 오버랩이 완전히 빠져나간 뒤 안전하게 처리한다.
 		for (AHTDButton* B : AnswerButtons)
 		{
-			if (B)
-			{
-				B->SetEnabledState(false);
-				B->Destroy();
-			}
+			if (B) B->SetEnabledState(false);
 		}
-		AnswerButtons.Empty(); // 파괴 후 댕글링 포인터 역참조 방지
 
-		OnFinished.Broadcast();
+		if (UWorld* W = GetWorld())
+		{
+			W->GetTimerManager().SetTimerForNextTick(
+				FTimerDelegate::CreateUObject(this, &ASurveyManager::FinishSurveyDeferred));
+		}
+		else
+		{
+			FinishSurveyDeferred(); // 월드가 없으면(이론상) 즉시 처리
+		}
 		return;
 	}
 
@@ -149,6 +156,18 @@ void ASurveyManager::ShowQuestion(int32 Index)
 		if (UVRLabelWidget* L = Cast<UVRLabelWidget>(QuestionWidget->GetUserWidgetObject()))
 			L->SetLabelText(FText::FromString(Question));
 	}
+}
+
+void ASurveyManager::FinishSurveyDeferred()
+{
+	// 다음 틱에 실행 — 마지막 버튼의 오버랩 디스패치가 완전히 빠져나간 뒤이므로 안전하게 파괴/통지한다.
+	for (AHTDButton* B : AnswerButtons)
+	{
+		if (B) B->Destroy();
+	}
+	AnswerButtons.Empty(); // 파괴 후 댕글링 포인터 역참조 방지
+
+	OnFinished.Broadcast(); // → AExperimentManager::OnSurveyFinished 가 이 설문 액터를 파괴하고 메뉴로 복귀
 }
 
 void ASurveyManager::OnAnswerPressed(int32 ButtonId)

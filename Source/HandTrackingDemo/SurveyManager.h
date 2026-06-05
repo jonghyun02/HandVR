@@ -44,6 +44,7 @@ protected:
 
 private:
 	void ShowQuestion(int32 Index);
+	void FinishSurveyDeferred(); // 설문 종료 정리(버튼 파괴 + OnFinished)를 '다음 틱'으로 미뤄 오버랩 콜백 중 자기파괴를 피함
 	void SaveResults();
 
 	UPROPERTY() UWidgetComponent*  TitleWidget    = nullptr;

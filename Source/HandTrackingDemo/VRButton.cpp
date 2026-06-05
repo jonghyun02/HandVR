@@ -85,6 +85,19 @@ void AHTDButton::SetEnabledState(bool bInEnabled)
 {
 	bEnabled = bInEnabled;
 	SetActorHiddenInGame(!bInEnabled);
+
+	// Arm the retrigger cooldown at the MOMENT of enabling, BEFORE collision turns on. When a state transition
+	// re-enables a button while a "HandTouch" hand is ALREADY inside its trigger box (e.g. the hand that just
+	// pressed the final survey Likert button, now hovering over the menu grid that reappears in that same spot),
+	// SetActorEnableCollision fires a spurious BeginOverlap. Without this guard that overlap instantly "presses"
+	// the freshly-shown button and auto-launches an experiment the moment the survey ends — the "설문 후 화면이
+	// 이상해짐" bug. Arming the cooldown here makes HandleOverlap ignore that enable-time overlap; the user must
+	// physically leave and re-enter the box for a real press.
+	if (bInEnabled && GetWorld())
+	{
+		LastTriggerTime = GetWorld()->GetTimeSeconds();
+	}
+
 	SetActorEnableCollision(bInEnabled);
 }
 

@@ -63,10 +63,23 @@ namespace
 		return Longest > KINDA_SMALL_NUMBER ? Target / Longest : 1.0f;
 	}
 
-	// WORLD-space offset from the actor origin to the working part of MeshOrNull, given the uniform fit Scale and
-	// the actor Rot. Working part = the +end (bPositiveEnd) or -end of the mesh's LONGEST local axis:
+	// PER-AXIS fit scale: each axis of the mesh's native bounding box is scaled independently to the matching
+	// component of TargetBoxCm (shape NOT preserved). Used for the brush so it can be made slender + long
+	// (thin cross-section, long handle) instead of a uniform blow-up.
+	FVector ComputeFitScaleAxis(UStaticMesh* MeshOrNull, FVector TargetBoxCm)
+	{
+		if (!MeshOrNull) return FVector::OneVector;
+		const FVector Full = MeshOrNull->GetBounds().BoxExtent * 2.0f;
+		return FVector(
+			Full.X > KINDA_SMALL_NUMBER ? TargetBoxCm.X / Full.X : 1.0f,
+			Full.Y > KINDA_SMALL_NUMBER ? TargetBoxCm.Y / Full.Y : 1.0f,
+			Full.Z > KINDA_SMALL_NUMBER ? TargetBoxCm.Z / Full.Z : 1.0f);
+	}
+
+	// WORLD-space offset from the actor origin to the working part of MeshOrNull, given the fit Scale (per-axis)
+	// and the actor Rot. Working part = the +end (bPositiveEnd) or -end of the mesh's LONGEST local axis:
 	// localOffset = Origin ± Extent along that axis. Caller does actorLoc = handLoc - thisOffset to land it.
-	FVector WorkingPartWorldOffset(UStaticMesh* MeshOrNull, float Scale, const FRotator& Rot, bool bPositiveEnd)
+	FVector WorkingPartWorldOffset(UStaticMesh* MeshOrNull, const FVector& Scale, const FRotator& Rot, bool bPositiveEnd)
 	{
 		if (!MeshOrNull) return FVector::ZeroVector;
 
@@ -86,9 +99,13 @@ namespace
 
 	// Fit boxes (cm) used both at spawn and in tick so the working-part offset stays consistent.
 	// Brush native bounds ≈ 6.1 × 4.2 × 21.1 cm (longest LOCAL axis = Z). Hammer ≈ 14.8 × 34.1 × 4.5 cm (longest = Y).
-	const FVector kBrushFitBox(24.0f, 24.0f, 24.0f);  // brush rendered ~24 cm long (real paint brush scale)
-	const FVector kHammerFitBox(33.0f, 33.0f, 33.0f); // hammer rendered ~33 cm long
-	const FRotator kBrushRot(0.0f, 0.0f, 90.0f);  // long axis swept roughly horizontal across the hand
+	// Brush is fitted PER-AXIS (ComputeFitScaleAxis) so it renders SLENDER + LONG: ~5.5 cm thick, ~36 cm long —
+	// a tall thin brush standing vertically over the hand (user request "붓 세로로 길게"). Hammer stays UNIFORM-fit.
+	const FVector kBrushFitBox(5.5f, 5.5f, 36.0f);    // per-axis target: thin cross-section, long (vertical) handle
+	const FVector kHammerFitBox(33.0f, 33.0f, 33.0f); // hammer rendered ~33 cm long (uniform fit, shape preserved)
+	// Brush stands VERTICAL with the bristle tip pointing DOWN onto the hand. Pitch 180° flips the mesh's long
+	// local axis (+Z = bristle end) to point world-DOWN, so the handle rises up and the bristles rest on the hand.
+	const FRotator kBrushRot(180.0f, 0.0f, 0.0f);
 
 	// Which END of each mesh's LONGEST local axis is the WORKING part that must land on the hand. The bristle /
 	// hammer-head end cannot be inferred from bounds (symmetric) — these are set from a direct render of the mesh
@@ -281,7 +298,7 @@ void AExperimentManager::EnterExperiment(EExperimentType Type)
 	// target dimension (shape preserved); the engine-cube fallback is fitted per-axis (cube is 100³).
 	// This reads each mesh's actual bounds, so props render at real-world size regardless of FBX import units.
 	// Tint is wired to a dynamic BasicShapeMaterial "Color" so props never render as the default grey checker.
-	auto MakeMesh = [&](FName Name, UStaticMesh* MeshOrNull, FVector Loc, FRotator Rot, FVector TargetBoxCm, FLinearColor Tint, bool bForceTint = false) -> AStaticMeshActor*
+	auto MakeMesh = [&](FName Name, UStaticMesh* MeshOrNull, FVector Loc, FRotator Rot, FVector TargetBoxCm, FLinearColor Tint, bool bForceTint = false, bool bPerAxisFit = false) -> AStaticMeshActor*
 	{
 		AStaticMeshActor* A = W->SpawnActor<AStaticMeshActor>(AStaticMeshActor::StaticClass(), FTransform(Rot, Loc), Params);
 		if (!A) return nullptr;
@@ -304,7 +321,9 @@ void AExperimentManager::EnterExperiment(EExperimentType Type)
 			FVector Scale = FVector::OneVector;
 			if (MeshOrNull)
 			{
-				Scale = FVector(ComputeFitScale(MeshOrNull, TargetBoxCm));
+				// Brush passes bPerAxisFit so it can be slender + long; hammer keeps the uniform (shape-preserving) fit.
+				Scale = bPerAxisFit ? ComputeFitScaleAxis(MeshOrNull, TargetBoxCm)
+				                    : FVector(ComputeFitScale(MeshOrNull, TargetBoxCm));
 			}
 			else
 			{
@@ -345,15 +364,16 @@ void AExperimentManager::EnterExperiment(EExperimentType Type)
 				BrushMesh,
 				P->GetVisualWristLocation(/*right*/ true), // refined immediately below so the BRISTLE TIP is at the hand
 				kBrushRot,
-				BrushMesh ? kBrushFitBox : FVector(2.0f, 18.0f, 2.0f),
-				FLinearColor(0.9f, 0.88f, 0.82f)); // cream brush handle
-			UE_LOG(LogTemp, Display, TEXT("[HandVR] RHI spawn: BrushMesh %s (fitScale=%.3f)"),
-				BrushMesh ? TEXT("LOADED") : TEXT("NULL -> cube fallback"), ComputeFitScale(BrushMesh, kBrushFitBox));
+				BrushMesh ? kBrushFitBox : FVector(2.5f, 2.5f, 30.0f),
+				FLinearColor(0.9f, 0.88f, 0.82f), // cream brush handle
+				/*bForceTint*/ false, /*bPerAxisFit*/ true); // slender + long, standing vertical
+			UE_LOG(LogTemp, Display, TEXT("[HandVR] RHI spawn: BrushMesh %s (fitScaleZ=%.3f)"),
+				BrushMesh ? TEXT("LOADED") : TEXT("NULL -> cube fallback"), ComputeFitScaleAxis(BrushMesh, kBrushFitBox).Z);
 			if (RHIBrush)
 			{
-				// Place so the bristle tip (+end of the longest local axis) sits ~1 cm above the hand surface.
+				// Place so the bristle tip (+end of the longest local axis, pointing DOWN) sits ~1 cm above the hand.
 				const FVector HandLoc = P->GetVisualWristLocation(/*right*/ true);
-				const float   Scale   = ComputeFitScale(BrushMesh, kBrushFitBox);
+				const FVector Scale   = ComputeFitScaleAxis(BrushMesh, kBrushFitBox);
 				const FVector ToTip   = WorkingPartWorldOffset(BrushMesh, Scale, kBrushRot, /*bPositiveEnd*/ kBrushBristleAtPositiveEnd);
 				RHIBrush->SetActorLocation(HandLoc + FVector(0.0f, 0.0f, 1.0f) - ToTip);
 			}
@@ -375,35 +395,19 @@ void AExperimentManager::EnterExperiment(EExperimentType Type)
 		case EExperimentType::VisualCapture:
 		{
 			// Snap visual hands +LateralOffsetCm laterally — instant, no fade. Real wrist position unchanged.
+			// No desk prop: the red reach-target sphere ("공") was removed per request. The visual-capture effect IS
+			// the offset hands themselves — the user just moves their hands and observes the seen/real mismatch.
 			P->SetVisualOffset(FVector(0.0f, LateralOffsetCm, 0.0f), FVector(0.0f, LateralOffsetCm, 0.0f));
 			P->SetVisualLatencyMs(LatencyMs); // 시간오차 변인 (보고서 5장)
-
-			// Target on desk — a plain RED SPHERE the user reaches for with the seen hand. (Previously this used
-			// TargetMesh = SM_ClawHammer, which is why a HAMMER appeared on the desk in 실험2 — removed per request.
-			// The hammer now belongs only to 실험4/Threat.)
-			static UStaticMesh* SphereMesh = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Sphere.Sphere"));
-			VCTarget = MakeMesh(TEXT("VC_Target"),
-				SphereMesh,
-				DeskTopCtr + FVector(0.0f, 0.0f, 6.0f),
-				FRotator::ZeroRotator,
-				FVector(8.0f, 8.0f, 8.0f),
-				FLinearColor(1.0f, 0.15f, 0.15f),
-				/*bForceTint*/ true);
 			break;
 		}
 
 		case EExperimentType::Drift:
 		{
+			// No ghost marker: the blue real-hand cube ("큐브") was removed per request. The drift is now shown
+			// purely by the seen hand slowly oscillating away from where the real (felt) hand actually is.
 			P->SetVisualOffset(FVector(0.0f, LateralOffsetCm, 0.0f), FVector(0.0f, LateralOffsetCm, 0.0f));
 			P->SetVisualLatencyMs(LatencyMs); // 시간오차 변인 (보고서 5장)
-
-			// Ghost cube at the REAL hand position — tick updates its transform to track real wrist.
-			DriftGhost = MakeMesh(TEXT("Drift_Ghost"),
-				nullptr,
-				DeskTopCtr,
-				FRotator::ZeroRotator,
-				FVector(4.0f, 4.0f, 4.0f),
-				FLinearColor(0.3f, 0.7f, 1.0f));
 			break;
 		}
 
@@ -605,14 +609,14 @@ void AExperimentManager::GetExperimentInfo(EExperimentType Type, FString& OutTit
 		case EExperimentType::VisualCapture:
 			OutTitle = TEXT("실험 2 · 시각적 포착");
 			OutBody  = TEXT("보이는 손이 실제 손보다 옆으로 이동해 있습니다.\n"
-			               "책상 위 빨간 표적을 '보이는 손'으로 만져 보세요.\n"
+			               "손을 천천히 움직이며 '보이는 손'을 눈으로 따라가 보세요.\n"
 			               "눈으로 본 위치와 실제 위치가 다를 때\n"
 			               "어느 쪽을 더 믿게 되는지 확인하는 실험입니다.");
 			break;
 		case EExperimentType::Drift:
 			OutTitle = TEXT("실험 3 · 고유수용감각 표류");
 			OutBody  = TEXT("보이는 손의 위치가 천천히 좌우로 흔들립니다.\n"
-			               "파란 표식은 당신의 '실제' 손 위치입니다.\n"
+			               "실제 손은 가만히 있는데 보이는 손만 표류합니다.\n"
 			               "시각 정보 때문에 실제 손 위치 감각이\n"
 			               "점점 표류하는지 확인하는 실험입니다.");
 			break;
@@ -712,7 +716,7 @@ void AExperimentManager::TickRHI(float /*DeltaTime*/)
 	const float   Ampl  = 6.0f; // cm — stroke length (±6)
 	const float   Hz    = FMath::Max(0.05f, BrushStrokeHz); // 0.5 Hz = 1왕복/2s
 	const float   Off   = FMath::Sin(ExperimentTime * Hz * 2.0f * PI) * Ampl;
-	const float   Scale = ComputeFitScale(BrushMesh, kBrushFitBox);
+	const FVector Scale = ComputeFitScaleAxis(BrushMesh, kBrushFitBox);
 	const FVector ToTip = WorkingPartWorldOffset(BrushMesh, Scale, kBrushRot, /*bPositiveEnd*/ kBrushBristleAtPositiveEnd);
 	RHIBrush->SetActorLocation(Center + FVector(Off, 0.0f, 1.0f) - ToTip);
 
@@ -735,13 +739,6 @@ void AExperimentManager::TickDrift(float /*DeltaTime*/)
 	// Drift Y offset oscillates around LateralOffsetCm to make the position-mismatch more salient.
 	const float OffsetY = LateralOffsetCm + FMath::Sin(ExperimentTime * DriftHz * 2.0f * PI) * DriftAmplitudeCm;
 	P->SetVisualOffset(FVector(0.0f, OffsetY, 0.0f), FVector(0.0f, OffsetY, 0.0f));
-
-	// Ghost marker pinned to the user's REAL right wrist position (where proprioception says the hand is).
-	if (DriftGhost)
-	{
-		const FVector RealRight = P->GetRealWristLocation(/*right*/ true);
-		DriftGhost->SetActorLocation(RealRight);
-	}
 }
 
 void AExperimentManager::TickThreat(float /*DeltaTime*/)
@@ -786,7 +783,7 @@ void AExperimentManager::TickThreat(float /*DeltaTime*/)
 	// Convert "head at target" into actor origin: actorLoc = headTarget - worldOffset(origin -> head), with the
 	// offset recomputed against the LIVE rotation each frame so the HEAD (not the handle/origin) lands on the hand.
 	const float   Scale   = ComputeFitScale(TargetMesh, kHammerFitBox);
-	const FVector ToHead  = WorkingPartWorldOffset(TargetMesh, Scale, Rot, /*bPositiveEnd*/ kHammerHeadAtPositiveEnd);
+	const FVector ToHead  = WorkingPartWorldOffset(TargetMesh, FVector(Scale), Rot, /*bPositiveEnd*/ kHammerHeadAtPositiveEnd);
 	const FVector HeadTgt = HandLoc + FVector(0.0f, 0.0f, HeightCm);
 	ThreatHammer->SetActorLocation(HeadTgt - ToHead);
 	ThreatHammer->SetActorRotation(Rot);
@@ -860,8 +857,6 @@ void AExperimentManager::DespawnProps()
 	auto Kill = [](AActor*& A) { if (A) { A->Destroy(); A = nullptr; } };
 	Kill(RHIFakeHand);
 	Kill(RHIBrush);
-	Kill(VCTarget);
-	Kill(DriftGhost);
 	Kill(ThreatHammer);
 	// 실험 설명 패널도 함께 제거 — 모든 상태 전환에서 DespawnProps가 호출되므로 패널 누수가 없다.
 	DespawnExperimentInfo();
